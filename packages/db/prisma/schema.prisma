@@ -1,0 +1,89 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum FriendshipStatus {
+  PENDING
+  ACCEPTED
+  BLOCKED
+}
+
+enum PostType {
+  TEXT
+  PHOTO
+  VIDEO_LINK
+}
+
+model User {
+  id               String        @id @default(uuid())
+  fbUserId         String?
+  email            String?
+  displayName      String
+  username         String        @unique
+  profilePicUrl    String?
+  bannerImageKey   String?
+  postsAuthored    Post[]        @relation("PostAuthor")
+  postsOnWall      Post[]        @relation("PostProfileOwner")
+  comments         Comment[]
+  requestedFriends Friendship[]  @relation("FriendshipRequester")
+  receivedFriends  Friendship[]  @relation("FriendshipAddressee")
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+}
+
+model Friendship {
+  id           String             @id @default(uuid())
+  requesterId  String
+  addresseeId  String
+  status       FriendshipStatus
+  requester    User               @relation("FriendshipRequester", fields: [requesterId], references: [id], onDelete: Cascade)
+  addressee    User               @relation("FriendshipAddressee", fields: [addresseeId], references: [id], onDelete: Cascade)
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+
+  @@unique([requesterId, addresseeId])
+  @@index([requesterId, status])
+  @@index([addresseeId, status])
+}
+
+model Post {
+  id              String   @id @default(uuid())
+  authorId        String
+  profileOwnerId  String
+  type            PostType
+  text            String?
+  photoKey        String?
+  photoCaption    String?
+  videoUrl              String?
+  /// Open-graph / inferred title when type is VIDEO_LINK (any shared URL).
+  linkTitle            String?
+  linkDescription      String?
+  /// Resized hero image stored in blob storage (fixed layout on clients).
+  linkPreviewImageKey  String?
+  isPinned        Boolean  @default(false)
+  author          User     @relation("PostAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  profileOwner    User     @relation("PostProfileOwner", fields: [profileOwnerId], references: [id], onDelete: Cascade)
+  comments        Comment[]
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([profileOwnerId, createdAt(sort: Desc)])
+}
+
+model Comment {
+  id        String   @id @default(uuid())
+  postId    String
+  authorId  String
+  text      String
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([postId, createdAt])
+}
