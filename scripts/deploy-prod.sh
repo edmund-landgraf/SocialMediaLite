@@ -48,10 +48,9 @@ if pm2 describe sml-web >/dev/null 2>&1; then
 fi
 
 if pm2 describe "$PM2_APP" >/dev/null 2>&1; then
-  pm2 restart "$PM2_APP"
-else
-  pm2 start ecosystem.config.cjs
+  pm2 delete "$PM2_APP"
 fi
+pm2 start ecosystem.config.cjs --update-env
 
 pm2 save
 
