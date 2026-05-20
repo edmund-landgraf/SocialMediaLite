@@ -1,3 +1,8 @@
+# Local Postgres for Windows dev — run inside WSL2 (Docker Desktop).
+#   wsl
+#   cd /mnt/d/repos/SocialMediaLite   # or your clone path
+#   docker compose up -d
+# Windows Node uses DATABASE_URL=...@localhost:5432... from repo-root `.env`.
 services:
   my-postgres:
     image: postgres:16

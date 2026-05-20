@@ -3,7 +3,7 @@
  *
  * Do not put environment-specific server settings here.
  * - Local dev: vite.config.local.ts
- * - VPS production (PM2 sml-web): vite.config.production.ts
+ * - Production build (nginx static): vite.config.production.ts
  *
  * Never hand-edit apps/web/vite.config.ts on production.
  * Edit vite.config.production.ts locally, commit, then git pull on VPS.
