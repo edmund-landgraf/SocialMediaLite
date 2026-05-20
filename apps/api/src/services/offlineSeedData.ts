@@ -66,6 +66,7 @@ export function offlineGlowbyteWallPostRows() {
       linkDescription: null,
       linkPreviewImageKey: null,
       isPinned: false,
+      sharedToFriendsFeed: true,
       createdAt: epoch,
       updatedAt: epoch,
       author: {

@@ -6,8 +6,8 @@ import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { ApiError, apiJson } from "@/lib/api";
-import type { CommentDTO, PostDTO, ProfileMeta, PublicUser } from "@/types";
+import { ApiError, apiFetch, apiJson } from "@/lib/api";
+import type { CommentDTO, FriendsFeedMeta, PostDTO, ProfileMeta, PublicUser } from "@/types";
 
 type MeResp = {
   user: PublicUser & { bannerUrl?: string | null };
@@ -124,9 +124,8 @@ function SharedLinkEmbed(props: {
 }
 
 async function multipart(path: string, form: FormData) {
-  const res = await fetch(path, {
+  const res = await apiFetch(path, {
     method: "POST",
-    credentials: "include",
     body: form,
   });
   const txt = await res.text();
@@ -154,9 +153,8 @@ async function multipart(path: string, form: FormData) {
 async function multipartPatchBanner(file: File) {
   const form = new FormData();
   form.append("banner", file);
-  const res = await fetch("/api/me/banner", {
+  const res = await apiFetch("/api/me/banner", {
     method: "PATCH",
-    credentials: "include",
     body: form,
   });
   const txt = await res.text();
@@ -304,7 +302,9 @@ function PostCard(props: {
   canModeratePins: boolean;
   canModerateDeletes: boolean;
   canEditCaption: boolean;
-  onPinnedChanged: () => void;
+  canShareToFriendsFeed: boolean;
+  showFeedSource: boolean;
+  onChanged: () => void;
 }) {
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [photoSize, setPhotoSize] = useState<ImageSizePreset>("large");
@@ -314,6 +314,7 @@ function PostCard(props: {
   const [captionBusy, setCaptionBusy] = useState(false);
   const [captionError, setCaptionError] = useState<string | null>(null);
   const sizeLabelTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [shareBusy, setShareBusy] = useState(false);
   const busy = false;
   const photoCaption = props.post.photoCaption ?? (props.post.type === "PHOTO" ? props.post.text : null);
 
@@ -357,13 +358,26 @@ function PostCard(props: {
       method: "POST",
       body: JSON.stringify({ pinned: next }),
     });
-    props.onPinnedChanged();
+    props.onChanged();
+  }
+
+  async function setFriendsFeedShare(shared: boolean) {
+    setShareBusy(true);
+    try {
+      await apiJson(`/api/posts/${props.post.id}/friends-feed-share`, {
+        method: "POST",
+        body: JSON.stringify({ shared }),
+      });
+      props.onChanged();
+    } finally {
+      setShareBusy(false);
+    }
   }
 
   async function del() {
     if (!confirm("Delete this post?")) return;
     await apiJson(`/api/posts/${props.post.id}`, { method: "DELETE" });
-    props.onPinnedChanged();
+    props.onChanged();
   }
 
   async function saveCaption() {
@@ -376,7 +390,7 @@ function PostCard(props: {
         body: JSON.stringify({ caption: captionDraft }),
       });
       setCaptionEditing(false);
-      props.onPinnedChanged();
+      props.onChanged();
     } catch (e) {
       setCaptionError(e instanceof Error ? e.message : "Failed saving caption");
     } finally {
@@ -400,6 +414,15 @@ function PostCard(props: {
                 {props.post.author.displayName}
               </div>
               <div className="text-xs text-zinc-500">{formatTime(props.post.createdAt)}</div>
+              {props.showFeedSource && props.post.profileOwner ? (
+                <div className="mt-0.5 text-[11px] text-zinc-500">
+                  From{" "}
+                  <Link to={`/${props.post.profileOwner.username}`} className="font-semibold text-zinc-400 hover:text-zinc-200">
+                    @{props.post.profileOwner.username}
+                  </Link>
+                  &apos;s page
+                </div>
+              ) : null}
               {props.post.isPinned ? (
                 <div className="mt-1 inline-flex rounded-full bg-blue-950/40 px-2 py-0.5 text-[11px] font-semibold text-blue-200">
                   Pinned
@@ -506,21 +529,36 @@ function PostCard(props: {
           </div>
         ) : null}
 
-        <div className="flex items-center gap-4 border-t border-zinc-900 pt-3">
+        <div className="flex flex-wrap items-center gap-2 border-t border-zinc-900 pt-3">
           <Button variant="ghost" size="sm" onClick={() => setCommentsOpen((v) => !v)}>
             Comment {props.post._count.comments ? `(${props.post._count.comments})` : null}
           </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() =>
-              navigator.clipboard
-                .writeText(`${window.location.origin}/${props.post.author.username}`)
-                .catch(() => undefined)
-            }
-          >
-            Share
-          </Button>
+          {props.canShareToFriendsFeed ? (
+            props.post.sharedToFriendsFeed ? (
+              <>
+                <Button variant="secondary" size="sm" disabled>
+                  Shared
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={shareBusy}
+                  onClick={() => void setFriendsFeedShare(false)}
+                >
+                  Unshare
+                </Button>
+              </>
+            ) : (
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={shareBusy}
+                onClick={() => void setFriendsFeedShare(true)}
+              >
+                Share
+              </Button>
+            )
+          ) : null}
           <Button variant="ghost" size="sm" disabled title="likes come later">
             Like
           </Button>
@@ -530,7 +568,7 @@ function PostCard(props: {
           postId={props.post.id}
           open={commentsOpen}
           onClose={() => setCommentsOpen(false)}
-          onChanged={() => props.onPinnedChanged()}
+          onChanged={() => props.onChanged()}
         />
       </CardContent>
     </Card>
@@ -544,6 +582,8 @@ export function ProfilePage() {
   const [me, setMe] = useState<(PublicUser & { bannerUrl?: string | null }) | null>(null);
   const [profile, setProfile] = useState<ProfileResp | null>(null);
   const [posts, setPosts] = useState<PostDTO[] | null>(null);
+  const [friendsFeedMeta, setFriendsFeedMeta] = useState<FriendsFeedMeta | null>(null);
+  const [feedTab, setFeedTab] = useState<"my" | "friends">("my");
   const [friends, setFriends] = useState<PublicUser[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -560,7 +600,22 @@ export function ProfilePage() {
     if (!name) return;
     const data = await apiJson<{ posts: PostDTO[] }>(`/api/users/${encodeURIComponent(name)}/posts`);
     setPosts(data.posts);
+    setFriendsFeedMeta(null);
   }, [name]);
+
+  const refreshFriendsFeed = useCallback(async () => {
+    if (!name) return;
+    const data = await apiJson<{ posts: PostDTO[]; meta: FriendsFeedMeta }>(
+      `/api/users/${encodeURIComponent(name)}/friends-feed`,
+    );
+    setPosts(data.posts);
+    setFriendsFeedMeta(data.meta);
+  }, [name]);
+
+  const refreshActiveFeed = useCallback(async () => {
+    if (feedTab === "friends") return refreshFriendsFeed();
+    return refreshPosts();
+  }, [feedTab, refreshFriendsFeed, refreshPosts]);
 
   const bootstrap = useCallback(async () => {
     if (!name) return;
@@ -581,7 +636,11 @@ export function ProfilePage() {
 
       // posts might be forbidden depending on friendship; try after profile
       try {
-        await refreshPosts();
+        if (feedTab === "friends" && m.user.username === name) {
+          await refreshFriendsFeed();
+        } else {
+          await refreshPosts();
+        }
       } catch (e) {
         const ae = ApiError.maybe(e);
         if (ae?.status === 403) setPosts([]);
@@ -599,14 +658,20 @@ export function ProfilePage() {
     } finally {
       setLoading(false);
     }
-  }, [name, nav, refreshPosts, refreshProfile]);
+  }, [name, nav, feedTab, refreshFriendsFeed, refreshPosts, refreshProfile]);
 
   useEffect(() => {
     void bootstrap();
   }, [bootstrap]);
 
+  useEffect(() => {
+    if (!profile?.meta.isSelf || loading) return;
+    if (feedTab === "friends") void refreshFriendsFeed().catch(() => undefined);
+    else void refreshPosts().catch(() => undefined);
+  }, [feedTab, profile?.meta.isSelf, loading, refreshFriendsFeed, refreshPosts]);
+
   async function logout() {
-    await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
+    await apiFetch("/api/auth/logout", { method: "POST" });
     nav("/login");
   }
 
@@ -993,7 +1058,9 @@ export function ProfilePage() {
               <div className="mt-1 text-sm text-zinc-400">{friends?.length ?? 0} friends (phase 1 list)</div>
 
               <CardDescription className="mt-1.5 max-w-xl text-[12px] leading-snug text-zinc-300">
-                Chronological profile timeline with one pinned post.
+                {profile.meta.isSelf
+                  ? "My feed is your wall. Friends feed shows posts friends marked Share."
+                  : "Chronological profile timeline with one pinned post."}
               </CardDescription>
 
               <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[12px] text-zinc-300">
@@ -1063,7 +1130,8 @@ export function ProfilePage() {
           </Card>
         ) : (
           <>
-            {/* Composer */}
+            {/* Composer — my feed / friend walls only */}
+            {(feedTab === "my" || !profile.meta.isSelf) ? (
             <Card className="mt-6">
               <CardHeader className="space-y-1 pb-4">
                 <div className="text-base font-semibold text-white">
@@ -1240,25 +1308,61 @@ export function ProfilePage() {
                 )}
               </CardContent>
             </Card>
+            ) : null}
 
             {/* Two column-ish layout */}
             <div className="mt-6 grid gap-6 pb-24 md:grid-cols-[1fr_320px]">
               <div className="space-y-5">
+                {profile.meta.isSelf ? (
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex gap-2">
+                      <Button
+                        variant={feedTab === "my" ? "default" : "secondary"}
+                        size="sm"
+                        onClick={() => setFeedTab("my")}
+                      >
+                        My feed
+                      </Button>
+                      <Button
+                        variant={feedTab === "friends" ? "default" : "secondary"}
+                        size="sm"
+                        onClick={() => setFeedTab("friends")}
+                      >
+                        Friends feed
+                      </Button>
+                    </div>
+                    {feedTab === "friends" && friendsFeedMeta ? (
+                      <div className="text-[11px] text-zinc-500">
+                        {friendsFeedMeta.sharableTotal} sharable from friends · showing {friendsFeedMeta.rankedCount}{" "}
+                        ranked
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+
                 {posts === null ? (
                   <div className="text-sm text-zinc-400">Loading posts…</div>
                 ) : posts.length === 0 ? (
                   <Card>
-                    <CardContent className="py-12 text-center text-sm text-zinc-400">No posts yet.</CardContent>
+                    <CardContent className="py-12 text-center text-sm text-zinc-400">
+                      {feedTab === "friends" && profile.meta.isSelf
+                        ? "No shared posts from friends yet. Friends must mark posts Share on their own pages."
+                        : "No posts yet."}
+                    </CardContent>
                   </Card>
                 ) : (
                   posts.map((p) => (
                     <PostCard
                       key={p.id}
                       post={p}
-                      canModeratePins={Boolean(pageOwnerPins && profile.meta.canViewContent)}
-                      canModerateDeletes={canDeletePost(p)}
-                      canEditCaption={canDeletePost(p)}
-                      onPinnedChanged={() => void refreshPosts()}
+                      canModeratePins={Boolean(pageOwnerPins && profile.meta.canViewContent && feedTab === "my")}
+                      canModerateDeletes={canDeletePost(p) && feedTab === "my"}
+                      canEditCaption={canDeletePost(p) && feedTab === "my"}
+                      canShareToFriendsFeed={Boolean(
+                        profile.meta.isSelf && feedTab === "my" && p.profileOwnerId === profile.user.id,
+                      )}
+                      showFeedSource={feedTab === "friends"}
+                      onChanged={() => void refreshActiveFeed()}
                     />
                   ))
                 )}

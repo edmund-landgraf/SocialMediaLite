@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { apiJson } from "@/lib/api";
+import { apiJson, apiUrl } from "@/lib/api";
 
 export function LoginPage() {
   const nav = useNavigate();
@@ -54,7 +54,7 @@ export function LoginPage() {
     setBusy(true);
     setActiveKind("facebook");
     setError(null);
-    window.location.href = "/api/auth/facebook/start";
+    window.location.href = apiUrl("/api/auth/facebook/start");
   }
 
   return (

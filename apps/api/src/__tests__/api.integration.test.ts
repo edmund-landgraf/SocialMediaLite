@@ -36,6 +36,7 @@ type PostRec = {
   linkDescription: string | null;
   linkPreviewImageKey: string | null;
   isPinned: boolean;
+  sharedToFriendsFeed: boolean;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -155,7 +156,11 @@ const prisma = {
       }
       return rows[0] ? { ...rows[0] } : null;
     },
-    async findMany(args: { where: Record<string, unknown>; include?: { requester: true; addressee: true } }) {
+    async findMany(args: {
+      where: Record<string, unknown>;
+      include?: { requester: true; addressee: true };
+      select?: { requesterId: true; addresseeId: true };
+    }) {
       const where = args.where as {
         status?: FriendshipRec["status"];
         OR?: Array<{ requesterId?: string; addresseeId?: string }>;
@@ -170,6 +175,9 @@ const prisma = {
               (c.addresseeId === undefined || c.addresseeId === f.addresseeId),
           ),
         );
+      }
+      if (args.select?.requesterId && args.select?.addresseeId) {
+        return rows.map((r) => ({ requesterId: r.requesterId, addresseeId: r.addresseeId }));
       }
       if (!args.include) return rows.map((r) => ({ ...r }));
       return rows.map((r) => ({
@@ -198,17 +206,35 @@ const prisma = {
     },
   },
   post: {
-    async findMany(args: { where: { profileOwnerId: string }; orderBy?: unknown; include?: Record<string, unknown> }) {
-      const rows = db.posts
-        .filter((p) => p.profileOwnerId === args.where.profileOwnerId)
-        .sort((a, b) => {
-          if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1;
-          return b.createdAt.getTime() - a.createdAt.getTime();
-        });
+    async findMany(args: {
+      where: {
+        profileOwnerId?: string | { in: string[] };
+        sharedToFriendsFeed?: boolean;
+      };
+      orderBy?: unknown;
+      include?: Record<string, unknown>;
+    }) {
+      let rows = db.posts.slice();
+      const where = args.where;
+      if (where.profileOwnerId !== undefined) {
+        if (typeof where.profileOwnerId === "string") {
+          rows = rows.filter((p) => p.profileOwnerId === where.profileOwnerId);
+        } else if (where.profileOwnerId.in) {
+          rows = rows.filter((p) => where.profileOwnerId.in.includes(p.profileOwnerId));
+        }
+      }
+      if (where.sharedToFriendsFeed !== undefined) {
+        rows = rows.filter((p) => p.sharedToFriendsFeed === where.sharedToFriendsFeed);
+      }
+      rows.sort((a, b) => {
+        if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1;
+        return b.createdAt.getTime() - a.createdAt.getTime();
+      });
       if (!args.include) return rows.map((r) => ({ ...r }));
       return rows.map((r) => ({
         ...r,
         author: findUserById(r.authorId),
+        profileOwner: findUserById(r.profileOwnerId),
         _count: { comments: db.comments.filter((c) => c.postId === r.id).length },
       }));
     },
@@ -229,25 +255,49 @@ const prisma = {
         linkTitle: d.linkTitle ?? null,
         linkDescription: d.linkDescription ?? null,
         linkPreviewImageKey: d.linkPreviewImageKey ?? null,
+        sharedToFriendsFeed: d.sharedToFriendsFeed ?? false,
       };
       db.posts.push(rec);
       if (!args.include) return { ...rec };
-      return { ...rec, author: findUserById(rec.authorId) };
+      return {
+        ...rec,
+        author: findUserById(rec.authorId),
+        profileOwner: findUserById(rec.profileOwnerId),
+        _count: { comments: 0 },
+      };
     },
-    async findUnique(args: { where: { id: string }; select?: { profileOwnerId: true } }) {
+    async findUnique(args: { where: { id: string }; select?: { profileOwnerId: true }; include?: Record<string, unknown> }) {
       const row = db.posts.find((p) => p.id === args.where.id);
       if (!row) return null;
       if (args.select?.profileOwnerId) return { profileOwnerId: row.profileOwnerId };
+      if (args.include) {
+        return {
+          ...row,
+          author: findUserById(row.authorId),
+          profileOwner: findUserById(row.profileOwnerId),
+          _count: { comments: db.comments.filter((c) => c.postId === row.id).length },
+        };
+      }
       return { ...row };
     },
-    async update(args: { where: { id: string }; data: Partial<Pick<PostRec, "isPinned" | "photoCaption">>; include?: Record<string, unknown> }) {
+    async update(args: {
+      where: { id: string };
+      data: Partial<Pick<PostRec, "isPinned" | "photoCaption" | "sharedToFriendsFeed">>;
+      include?: Record<string, unknown>;
+    }) {
       const row = db.posts.find((p) => p.id === args.where.id);
       if (!row) throw new Error("post not found");
       if (args.data.isPinned !== undefined) row.isPinned = args.data.isPinned;
       if (args.data.photoCaption !== undefined) row.photoCaption = args.data.photoCaption ?? null;
+      if (args.data.sharedToFriendsFeed !== undefined) row.sharedToFriendsFeed = args.data.sharedToFriendsFeed;
       row.updatedAt = now();
       if (!args.include) return { ...row };
-      return { ...row, author: findUserById(row.authorId), _count: { comments: db.comments.filter((c) => c.postId === row.id).length } };
+      return {
+        ...row,
+        author: findUserById(row.authorId),
+        profileOwner: findUserById(row.profileOwnerId),
+        _count: { comments: db.comments.filter((c) => c.postId === row.id).length },
+      };
     },
     async updateMany(args: { where: { profileOwnerId: string; isPinned?: boolean }; data: Partial<Pick<PostRec, "isPinned">> }) {
       const matches = db.posts.filter(
@@ -453,6 +503,42 @@ describe("api integration (phase 1)", () => {
     expect(res.status).toBe(200);
     expect(res.body.hostname).toBe("example.com");
     expect(res.body.title).toBe("Example article");
+  });
+
+  it("shows shared friend posts on the viewer friends feed", async () => {
+    const { alice, bob } = await createAgents();
+    await loginTestUser(alice);
+    await loginFacebookStub(bob);
+
+    await bob.post("/api/friends/request").send({ username: "testuser" });
+    await alice.post("/api/friends/accept").send({ username: "fbdemo" });
+
+    const created = await bob.post("/api/users/fbdemo/posts").send({
+      type: "TEXT",
+      text: "share me to alice feed",
+    });
+    expect(created.status).toBe(201);
+    const postId = created.body.post.id as string;
+
+    const notShared = await alice.get("/api/users/testuser/friends-feed");
+    expect(notShared.status).toBe(200);
+    expect(notShared.body.posts).toHaveLength(0);
+
+    const shared = await bob.post(`/api/posts/${postId}/friends-feed-share`).send({ shared: true });
+    expect(shared.status).toBe(200);
+    expect(shared.body.post.sharedToFriendsFeed).toBe(true);
+
+    const feed = await alice.get("/api/users/testuser/friends-feed");
+    expect(feed.status).toBe(200);
+    expect(feed.body.posts).toHaveLength(1);
+    expect(feed.body.posts[0].text).toBe("share me to alice feed");
+    expect(feed.body.meta.sharableTotal).toBe(1);
+
+    const unshared = await bob.post(`/api/posts/${postId}/friends-feed-share`).send({ shared: false });
+    expect(unshared.status).toBe(200);
+
+    const empty = await alice.get("/api/users/testuser/friends-feed");
+    expect(empty.body.posts).toHaveLength(0);
   });
 
   it("returns a friendly 400 for oversized image upload policy failures", async () => {

@@ -19,7 +19,6 @@ import {
   type FriendsFeedCandidate,
 } from "../services/friendsFeedRank.js";
 import { isOfflineTestUserSession, respondOfflineWritesDisabled } from "../services/offlineTestUser.js";
-import { areAcceptedFriends } from "../services/access.js";
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -131,17 +130,136 @@ postsRouter.get("/users/:username/posts", async (req, res) => {
   const posts = await prisma.post.findMany({
     where: { profileOwnerId: owner.id },
     orderBy: [{ isPinned: "desc" }, { createdAt: "desc" }],
-    include: {
-      author: {
-        select: { id: true, username: true, displayName: true, profilePicUrl: true },
-      },
-      _count: { select: { comments: true } },
-    },
+    include: postInclude,
   });
 
   res.json({
     posts: posts.map((p) => serializePost(req, p)),
   });
+});
+
+postsRouter.get("/users/:username/friends-feed", async (req, res) => {
+  const params = usernameParamSchema.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: params.error.flatten() });
+    return;
+  }
+
+  const viewerId = req.session.userId!;
+
+  if (isOfflineTestUserSession(req) && params.data.username === OFFLINE_TEST_USERNAME) {
+    const photoUrl = offlineGlowbyteIntroPhotoDataUrl();
+    const gbPosts = offlineGlowbyteWallPostRows().map((p) => ({
+      ...serializePost(req, { ...p, sharedToFriendsFeed: true }),
+      photoUrl,
+      profileOwner: {
+        id: p.author.id,
+        username: p.author.username,
+        displayName: p.author.displayName,
+        profilePicUrl: p.author.profilePicUrl,
+      },
+    }));
+    res.json({
+      posts: gbPosts,
+      meta: { sharableTotal: gbPosts.length, rankedCount: gbPosts.length },
+    });
+    return;
+  }
+
+  const pageOwner = await prisma.user.findUnique({
+    where: { username: params.data.username },
+  });
+  if (!pageOwner) {
+    res.status(404).json({ error: "User not found" });
+    return;
+  }
+  if (pageOwner.id !== viewerId) {
+    res.status(403).json({ error: "Friends feed is only available on your own page" });
+    return;
+  }
+
+  const friendships = await prisma.friendship.findMany({
+    where: {
+      status: "ACCEPTED",
+      OR: [{ requesterId: viewerId }, { addresseeId: viewerId }],
+    },
+    select: { requesterId: true, addresseeId: true },
+  });
+  const friendIds = friendships.map((f) =>
+    f.requesterId === viewerId ? f.addresseeId : f.requesterId,
+  );
+  if (friendIds.length === 0) {
+    res.json({ posts: [], meta: { sharableTotal: 0, rankedCount: 0 } });
+    return;
+  }
+
+  const sharedPosts = await prisma.post.findMany({
+    where: {
+      sharedToFriendsFeed: true,
+      profileOwnerId: { in: friendIds },
+    },
+    include: postInclude,
+  });
+
+  const authorSharedCounts = new Map<string, number>();
+  for (const p of sharedPosts) {
+    authorSharedCounts.set(p.authorId, (authorSharedCounts.get(p.authorId) ?? 0) + 1);
+  }
+
+  const candidates: FriendsFeedCandidate[] = sharedPosts.map((p) => ({
+    postId: p.id,
+    authorId: p.authorId,
+    profileOwnerId: p.profileOwnerId,
+    createdAt: p.createdAt,
+    commentCount: p._count.comments,
+    authorSharedPostCount: authorSharedCounts.get(p.authorId) ?? 1,
+  }));
+
+  const appearanceHistory = req.session.friendsFeedAppearances ?? {};
+  const { ranked, nextAppearanceHistory, meta } = rankFriendsFeedPosts(candidates, appearanceHistory);
+  req.session.friendsFeedAppearances = nextAppearanceHistory;
+
+  const rankById = new Map(ranked.map((r, i) => [r.postId, i]));
+  const ordered = [...sharedPosts].sort(
+    (a, b) => (rankById.get(a.id) ?? 999) - (rankById.get(b.id) ?? 999),
+  );
+
+  res.json({
+    posts: ordered.map((p) => serializePost(req, p)),
+    meta,
+  });
+});
+
+postsRouter.post("/posts/:postId/friends-feed-share", async (req, res) => {
+  if (isOfflineTestUserSession(req)) {
+    respondOfflineWritesDisabled(res);
+    return;
+  }
+  const body = z.object({ shared: z.boolean() }).safeParse(req.body);
+  if (!body.success) {
+    res.status(400).json({ error: body.error.flatten() });
+    return;
+  }
+  const viewerId = req.session.userId!;
+  const post = await prisma.post.findUnique({
+    where: { id: req.params.postId },
+    include: postInclude,
+  });
+  if (!post) {
+    res.status(404).json({ error: "Not found" });
+    return;
+  }
+  if (post.profileOwnerId !== viewerId) {
+    res.status(403).json({ error: "Only the page owner can share posts to the friends feed" });
+    return;
+  }
+
+  const updated = await prisma.post.update({
+    where: { id: post.id },
+    data: { sharedToFriendsFeed: body.data.shared },
+    include: postInclude,
+  });
+  res.json({ post: serializePost(req, updated) });
 });
 
 postsRouter.post("/users/:username/posts", maybeMultipart, async (req, res) => {

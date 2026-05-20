@@ -40,13 +40,20 @@ export type PostDTO = {
   linkTitle?: string | null;
   linkDescription?: string | null;
   isPinned: boolean;
+  sharedToFriendsFeed: boolean;
   createdAt: string;
   updatedAt: string;
   author: PostAuthor;
+  profileOwner?: PostAuthor;
   _count: { comments: number };
   photoUrl: string | null;
   /** Stored Open Graph thumbnail (fixed server-side crop); omitted on older rows. */
   linkPreviewUrl?: string | null;
+};
+
+export type FriendsFeedMeta = {
+  sharableTotal: number;
+  rankedCount: number;
 };
 
 export type CommentDTO = {
