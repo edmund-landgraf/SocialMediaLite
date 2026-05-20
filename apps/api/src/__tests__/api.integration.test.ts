@@ -119,6 +119,15 @@ const prisma = {
       }
       return null;
     },
+    async findMany(args?: { orderBy?: unknown; take?: number }) {
+      let rows = db.users.slice().sort((a, b) => {
+        const byName = a.displayName.localeCompare(b.displayName);
+        if (byName !== 0) return byName;
+        return a.username.localeCompare(b.username);
+      });
+      if (args?.take !== undefined) rows = rows.slice(0, args.take);
+      return rows.map(cloneUser);
+    },
     async update(args: { where: { id: string }; data: Partial<Pick<UserRec, "bannerImageKey">> }) {
       const row = db.users.find((u) => u.id === args.where.id);
       if (!row) throw new Error("user not found");
@@ -180,6 +189,12 @@ const prisma = {
       if (args.data.status !== undefined) row.status = args.data.status;
       row.updatedAt = now();
       return { ...row };
+    },
+    async delete(args: { where: { id: string } }) {
+      const idx = db.friendships.findIndex((f) => f.id === args.where.id);
+      if (idx === -1) throw new Error("friendship not found");
+      const [deleted] = db.friendships.splice(idx, 1);
+      return { ...deleted };
     },
   },
   post: {

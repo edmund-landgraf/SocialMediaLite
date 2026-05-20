@@ -66,6 +66,8 @@ model Post {
   /// Resized hero image stored in blob storage (fixed layout on clients).
   linkPreviewImageKey  String?
   isPinned        Boolean  @default(false)
+  /// When true, post may appear on friends' "Friends feed" tab (own wall only).
+  sharedToFriendsFeed Boolean @default(false)
   author          User     @relation("PostAuthor", fields: [authorId], references: [id], onDelete: Cascade)
   profileOwner    User     @relation("PostProfileOwner", fields: [profileOwnerId], references: [id], onDelete: Cascade)
   comments        Comment[]

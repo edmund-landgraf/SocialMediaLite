@@ -828,6 +828,34 @@ export function ProfilePage() {
     setFriends(f.friends);
   }
 
+  async function rejectFriendships() {
+    if (!profile) return;
+
+    await apiJson("/api/friends/reject", {
+      method: "POST",
+      body: JSON.stringify({ username: profile.user.username }),
+    });
+    await refreshProfile();
+
+    await refreshPosts().catch(() => undefined);
+    const f = await apiJson<FriendsResp>("/api/friends");
+    setFriends(f.friends);
+  }
+
+  async function removeFriendship() {
+    if (!profile) return;
+    if (!confirm(`Remove ${profile.user.displayName} as a friend?`)) return;
+
+    await apiJson("/api/friends/remove", {
+      method: "POST",
+      body: JSON.stringify({ username: profile.user.username }),
+    });
+    await refreshProfile();
+    setPosts([]);
+    const f = await apiJson<FriendsResp>("/api/friends");
+    setFriends(f.friends);
+  }
+
   const canComposer = Boolean(profile?.meta.canViewContent);
 
   const pageOwnerPins = Boolean(profile?.meta.isSelf);
@@ -883,6 +911,9 @@ export function ProfilePage() {
                 <Link to={`/${me.username}`}>My profile</Link>
               </Button>
             ) : null}
+            <Button asChild variant="secondary" size="sm">
+              <Link to="/friends">Browse users</Link>
+            </Button>
             <Button variant="outline" size="sm" title="later" disabled>
               Add to story
             </Button>
@@ -993,7 +1024,18 @@ export function ProfilePage() {
                 ) : null}
 
                 {profile.meta.friendshipStatus === "pending_in" ? (
-                  <Button onClick={() => void acceptFriendships()}>Accept request</Button>
+                  <>
+                    <Button onClick={() => void acceptFriendships()}>Accept request</Button>
+                    <Button variant="ghost" onClick={() => void rejectFriendships()}>
+                      Reject
+                    </Button>
+                  </>
+                ) : null}
+
+                {profile.meta.friendshipStatus === "accepted" ? (
+                  <Button variant="ghost" onClick={() => void removeFriendship()}>
+                    Defriend
+                  </Button>
                 ) : null}
               </Fragment>
             ) : null}
@@ -1012,6 +1054,9 @@ export function ProfilePage() {
             <CardContent className="space-y-4">
               <div className="flex flex-wrap gap-2">
                 <Button onClick={() => void requestFriendships()}>Send friend request</Button>
+                <Button asChild variant="secondary">
+                  <Link to="/friends">Browse users</Link>
+                </Button>
               </div>
               <FriendlyErrorMessage />
             </CardContent>

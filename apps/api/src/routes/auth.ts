@@ -4,6 +4,11 @@ import { Prisma } from "@prisma/client";
 import { FACEBOOK_STUB_AVATAR_URL, stubLoginSchema } from "@socialmedialite/shared";
 import { prisma } from "../lib/prisma.js";
 import { ensureAiFriendshipForUser } from "../services/aiFriend.js";
+import {
+  isPrismaConnectionError,
+  OFFLINE_TEST_USER_ID,
+  offlineTestUserRow,
+} from "../services/offlineTestUser.js";
 import { serializeUser } from "../services/serializers.js";
 
 export const authRouter = Router();
@@ -151,6 +156,7 @@ authRouter.get("/facebook/callback", async (req, res) => {
     }
 
     await ensureAiFriendshipForUser(user.id);
+    delete req.session.offlineTestUser;
     req.session.userId = user.id;
     res.redirect(`${webOrigin}/${encodeURIComponent(user.username)}`);
   } catch (err) {
@@ -167,21 +173,80 @@ authRouter.post("/stub-login", async (req, res) => {
   }
   const kind = parsed.data.kind;
 
-  const identity = kind === "test_user"
-    ? {
-        username: "testuser",
-        displayName: "Test User",
-        email: null as string | null,
-        fbUserId: null as string | null,
-        profilePicUrl: null as string | null,
+  if (kind === "test_user") {
+    const identity = {
+      username: "testuser",
+      displayName: "Test User",
+      email: null as string | null,
+      fbUserId: null as string | null,
+      profilePicUrl: null as string | null,
+    };
+    try {
+      const user = await prisma.user.upsert({
+        where: { username: identity.username },
+        create: {
+          displayName: identity.displayName,
+          username: identity.username,
+          email: identity.email,
+          fbUserId: identity.fbUserId,
+          profilePicUrl: identity.profilePicUrl,
+        },
+        update: {
+          displayName: identity.displayName,
+          email: identity.email,
+          fbUserId: identity.fbUserId,
+          profilePicUrl: identity.profilePicUrl,
+        },
+      });
+
+      await ensureAiFriendshipForUser(user.id);
+
+      delete req.session.offlineTestUser;
+      req.session.userId = user.id;
+      res.json({ user: serializeUser(user) });
+      return;
+    } catch (e) {
+      if (isPrismaConnectionError(e)) {
+        req.session.userId = OFFLINE_TEST_USER_ID;
+        req.session.offlineTestUser = true;
+        res.json({ user: serializeUser(offlineTestUserRow()) });
+        return;
       }
-    : {
-        username: "fbdemo",
-        displayName: "Facebook Demo",
-        email: "facebook.demo@example.test",
-        fbUserId: "stub-facebook-001",
-        profilePicUrl: FACEBOOK_STUB_AVATAR_URL,
-      };
+      console.error("stub-login failed:", e);
+
+      let message = "Server error";
+      let detail: string | undefined;
+
+      if (e instanceof Prisma.PrismaClientKnownRequestError) {
+        detail = e.meta ? JSON.stringify(e.meta) : undefined;
+        if (e.code === "P1001" || e.code === "P1003") {
+          message =
+            "Cannot reach Postgres. Ensure DATABASE_URL is set, the DB is running, and `npm run db:deploy` was applied.";
+        } else {
+          message = `Database error (${e.code}). Run migrations from the repo root: npm run db:deploy`;
+        }
+      } else if (e instanceof Prisma.PrismaClientInitializationError) {
+        message =
+          "Prisma initialization failed — check DATABASE_URL in your root `.env`. Run `npm run db:deploy` after Postgres is ready.";
+      } else if (e instanceof Error) {
+        detail = e.message;
+      }
+
+      res.status(500).json({
+        error: message,
+        ...(process.env.NODE_ENV !== "production" && detail !== undefined ? { detail } : {}),
+      });
+      return;
+    }
+  }
+
+  const identity = {
+    username: "fbdemo",
+    displayName: "Facebook Demo",
+    email: "facebook.demo@example.test",
+    fbUserId: "stub-facebook-001",
+    profilePicUrl: FACEBOOK_STUB_AVATAR_URL,
+  };
 
   try {
     const user = await prisma.user.upsert({
@@ -203,6 +268,7 @@ authRouter.post("/stub-login", async (req, res) => {
 
     await ensureAiFriendshipForUser(user.id);
 
+    delete req.session.offlineTestUser;
     req.session.userId = user.id;
     res.json({ user: serializeUser(user) });
   } catch (e) {

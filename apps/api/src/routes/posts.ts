@@ -6,8 +6,20 @@ import { usernameParamSchema } from "@socialmedialite/shared";
 import { prisma } from "../lib/prisma.js";
 import { requireAuth } from "../middleware/auth.js";
 import { assertCanAccessProfile } from "../services/access.js";
+import { AI_FRIEND } from "../services/aiFriend.js";
 import { buildStoredLinkPreview } from "../services/linkPreview.js";
 import { processImageToMaxSize } from "../services/image.js";
+import {
+  offlineGlowbyteIntroPhotoDataUrl,
+  offlineGlowbyteWallPostRows,
+  OFFLINE_TEST_USERNAME,
+} from "../services/offlineSeedData.js";
+import {
+  rankFriendsFeedPosts,
+  type FriendsFeedCandidate,
+} from "../services/friendsFeedRank.js";
+import { isOfflineTestUserSession, respondOfflineWritesDisabled } from "../services/offlineTestUser.js";
+import { areAcceptedFriends } from "../services/access.js";
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -53,16 +65,30 @@ function postAssetPublicUrl(req: Request, assetKey: string | null | undefined): 
   return `${baseUrl}${req.storage.getPublicUrl(assetKey)}`;
 }
 
-function serializePost<T extends { photoKey: string | null; linkPreviewImageKey?: string | null }>(
-  req: Request,
-  post: T,
-): T & { photoUrl: string | null; linkPreviewUrl: string | null } {
+function serializePost<
+  T extends {
+    photoKey: string | null;
+    linkPreviewImageKey?: string | null;
+    sharedToFriendsFeed?: boolean;
+  },
+>(req: Request, post: T): T & { photoUrl: string | null; linkPreviewUrl: string | null } {
   return {
     ...post,
+    sharedToFriendsFeed: post.sharedToFriendsFeed ?? false,
     photoUrl: postAssetPublicUrl(req, post.photoKey),
     linkPreviewUrl: postAssetPublicUrl(req, post.linkPreviewImageKey ?? null),
   };
 }
+
+const postInclude = {
+  author: {
+    select: { id: true, username: true, displayName: true, profilePicUrl: true },
+  },
+  profileOwner: {
+    select: { id: true, username: true, displayName: true, profilePicUrl: true },
+  },
+  _count: { select: { comments: true } },
+} as const;
 
 postsRouter.get("/users/:username/posts", async (req, res) => {
   const params = usernameParamSchema.safeParse(req.params);
@@ -70,6 +96,23 @@ postsRouter.get("/users/:username/posts", async (req, res) => {
     res.status(400).json({ error: params.error.flatten() });
     return;
   }
+
+  if (isOfflineTestUserSession(req) && params.data.username === OFFLINE_TEST_USERNAME) {
+    res.json({ posts: [] });
+    return;
+  }
+
+  if (isOfflineTestUserSession(req) && params.data.username === AI_FRIEND.username) {
+    const photoUrl = offlineGlowbyteIntroPhotoDataUrl();
+    res.json({
+      posts: offlineGlowbyteWallPostRows().map((p) => ({
+        ...serializePost(req, p),
+        photoUrl,
+      })),
+    });
+    return;
+  }
+
   const owner = await prisma.user.findUnique({
     where: { username: params.data.username },
   });
@@ -107,6 +150,12 @@ postsRouter.post("/users/:username/posts", maybeMultipart, async (req, res) => {
     res.status(400).json({ error: params.error.flatten() });
     return;
   }
+
+  if (isOfflineTestUserSession(req)) {
+    respondOfflineWritesDisabled(res);
+    return;
+  }
+
   const owner = await prisma.user.findUnique({
     where: { username: params.data.username },
   });
@@ -222,6 +271,10 @@ postsRouter.post("/users/:username/posts", maybeMultipart, async (req, res) => {
 });
 
 postsRouter.patch("/posts/:postId/photo-caption", async (req, res) => {
+  if (isOfflineTestUserSession(req)) {
+    respondOfflineWritesDisabled(res);
+    return;
+  }
   const body = z.object({ caption: photoCaptionSchema }).safeParse(req.body);
   if (!body.success) {
     res.status(400).json({ error: body.error.flatten() });
@@ -257,6 +310,10 @@ postsRouter.patch("/posts/:postId/photo-caption", async (req, res) => {
 });
 
 postsRouter.post("/posts/:postId/pin", async (req, res) => {
+  if (isOfflineTestUserSession(req)) {
+    respondOfflineWritesDisabled(res);
+    return;
+  }
   const postId = req.params.postId;
   const body = z
     .object({ pinned: z.boolean() })
@@ -315,6 +372,10 @@ postsRouter.post("/posts/:postId/pin", async (req, res) => {
 });
 
 postsRouter.delete("/posts/:postId", async (req, res) => {
+  if (isOfflineTestUserSession(req)) {
+    respondOfflineWritesDisabled(res);
+    return;
+  }
   const postId = req.params.postId;
   const viewerId = req.session.userId!;
   const post = await prisma.post.findUnique({ where: { id: postId } });

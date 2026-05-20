@@ -4,11 +4,16 @@ import { commentTextSchema } from "@socialmedialite/shared";
 import { prisma } from "../lib/prisma.js";
 import { requireAuth } from "../middleware/auth.js";
 import { assertCanAccessProfile } from "../services/access.js";
+import { isOfflineTestUserSession, respondOfflineWritesDisabled } from "../services/offlineTestUser.js";
 
 export const commentsRouter = Router();
 commentsRouter.use(requireAuth);
 
 commentsRouter.get("/posts/:postId/comments", async (req, res) => {
+  if (isOfflineTestUserSession(req)) {
+    res.json({ comments: [] });
+    return;
+  }
   const postId = req.params.postId;
   const post = await prisma.post.findUnique({
     where: { id: postId },
@@ -40,6 +45,10 @@ commentsRouter.get("/posts/:postId/comments", async (req, res) => {
 });
 
 commentsRouter.post("/posts/:postId/comments", async (req, res) => {
+  if (isOfflineTestUserSession(req)) {
+    respondOfflineWritesDisabled(res);
+    return;
+  }
   const postIdSchema = z.string().uuid();
   const postIdParsed = postIdSchema.safeParse(req.params.postId);
   if (!postIdParsed.success) {

@@ -8,6 +8,11 @@ export const AI_FRIEND = {
     "Hey friend, I'm Glowbyte. I am your built-in AI buddy on SocialMediaLite. Drop a post, share a photo, and let's make your page shine.",
 };
 
+/** Same artwork as the DB-seeded Glowbyte intro post; used for offline fixtures. */
+export function aiFriendIntroSvg(): string {
+  return sunsetSvg();
+}
+
 function sunsetSvg(): string {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
