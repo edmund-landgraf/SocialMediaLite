@@ -3,9 +3,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview"
+    "dev": "vite --config vite.config.local.ts",
+    "dev:prod": "vite --host 0.0.0.0 --config vite.config.production.ts",
+    "build": "vite build --config vite.config.production.ts",
+    "preview": "vite preview --config vite.config.local.ts"
   },
   "dependencies": {
     "@radix-ui/react-slot": "^1.2.4",
