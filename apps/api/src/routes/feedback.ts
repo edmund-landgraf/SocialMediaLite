@@ -116,7 +116,12 @@ feedbackRouter.patch("/feedback/:feedbackId", requireAuth, async (req, res, next
     res.status(400).json({ error: body.error.flatten() });
     return;
   }
-  const feedbackId = req.params.feedbackId;
+  const feedbackIdParsed = z.string().uuid().safeParse(req.params.feedbackId);
+  if (!feedbackIdParsed.success) {
+    res.status(400).json({ error: "Invalid feedback id" });
+    return;
+  }
+  const feedbackId = feedbackIdParsed.data;
   const viewerId = req.session.userId!;
   try {
     const existing = await prisma.feedbackItem.findUnique({ where: { id: feedbackId } });
@@ -147,7 +152,12 @@ feedbackRouter.get("/feedback/:feedbackId/comments", async (req, res, next) => {
     res.json({ comments: [] });
     return;
   }
-  const feedbackId = req.params.feedbackId;
+  const feedbackIdParsed = z.string().uuid().safeParse(req.params.feedbackId);
+  if (!feedbackIdParsed.success) {
+    res.status(400).json({ error: "Invalid feedback id" });
+    return;
+  }
+  const feedbackId = feedbackIdParsed.data;
   try {
     const item = await prisma.feedbackItem.findUnique({ where: { id: feedbackId }, select: { id: true } });
     if (!item) {
