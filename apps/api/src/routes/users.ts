@@ -9,7 +9,7 @@ import { processImageToMaxSize } from "../services/image.js";
 import { AI_FRIEND } from "../services/aiFriend.js";
 import { offlineGlowbyteUserRow, offlineStubTestUserRowById } from "../services/offlineSeedData.js";
 import { isOfflineTestUserSession, respondOfflineWritesDisabled } from "../services/offlineTestUser.js";
-import { findStubTestUserProfileByOfflineUserId, findStubTestUserProfileByUsername } from "@socialmedialite/shared";
+import { findStubTestUserProfileByOfflineUserId, findStubTestUserProfileByUsername, isRealFacebookUser } from "@socialmedialite/shared";
 import { serializeUser } from "../services/serializers.js";
 
 const upload = multer({
@@ -30,6 +30,7 @@ usersRouter.get("/me", requireAuth, async (req, res) => {
       user: {
         ...serializeUser(u),
         bannerUrl: null,
+        hasRealFacebookAccount: false,
       },
     });
     return;
@@ -48,6 +49,7 @@ usersRouter.get("/me", requireAuth, async (req, res) => {
         user.bannerImageKey != null
           ? `${baseUrl}${req.storage.getPublicUrl(user.bannerImageKey)}`
           : null,
+      hasRealFacebookAccount: isRealFacebookUser(user.fbUserId),
     },
   });
 });

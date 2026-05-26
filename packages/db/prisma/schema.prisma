@@ -17,6 +17,7 @@ enum PostType {
   TEXT
   PHOTO
   VIDEO_LINK
+  REEL
 }
 
 enum FriendsFeedReviewStatus {
@@ -86,6 +87,8 @@ model Post {
   textBackgroundColor String?
   textColor           String?
   textFontSize        Int?
+  /// Original Facebook post id when imported from Graph API.
+  fbPostId             String?  @unique
   author          User     @relation("PostAuthor", fields: [authorId], references: [id], onDelete: Cascade)
   profileOwner    User     @relation("PostProfileOwner", fields: [profileOwnerId], references: [id], onDelete: Cascade)
   comments        Comment[]

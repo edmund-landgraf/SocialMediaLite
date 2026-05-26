@@ -9,6 +9,7 @@ export type PublicUser = {
   bannerPositionX?: number;
   bannerPositionY?: number;
   createdAt: string;
+  hasRealFacebookAccount?: boolean;
 };
 
 export type ProfileMeta = {
@@ -39,7 +40,7 @@ export type PostDTO = {
   id: string;
   authorId: string;
   profileOwnerId: string;
-  type: "TEXT" | "PHOTO" | "VIDEO_LINK";
+  type: "TEXT" | "PHOTO" | "VIDEO_LINK" | "REEL";
   text: string | null;
   photoKey: string | null;
   photoCaption: string | null;

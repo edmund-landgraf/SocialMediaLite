@@ -17,7 +17,7 @@ import { loginStubTestUser } from "../services/stubTestUsers.js";
 import { serializeUser } from "../services/serializers.js";
 
 export const authRouter = Router();
-const FB_SCOPE = "public_profile,email";
+const FB_SCOPE = "public_profile,email,user_posts";
 
 type FacebookConfig = {
   appId: string;
@@ -178,6 +178,7 @@ authRouter.get("/facebook/callback", async (req, res) => {
     await ensureAiFriendshipForUser(user.id);
     delete req.session.offlineTestUser;
     req.session.userId = user.id;
+    req.session.facebookAccessToken = accessToken;
     if (returnTo) {
       res.redirect(`${webOrigin}${returnTo}`);
       return;

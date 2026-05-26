@@ -12,6 +12,8 @@ declare module "express-session" {
     feedbackCaptchaAnswer?: number;
     feedbackCaptchaExpiresAt?: number;
     oauthReturnTo?: string;
+    /** Short-lived token from Facebook OAuth — used for Graph import during session. */
+    facebookAccessToken?: string;
   }
 }
 

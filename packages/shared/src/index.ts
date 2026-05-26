@@ -13,6 +13,19 @@ export {
   type StubTestUserProfile,
 } from "./stubTestUsers.js";
 
+export {
+  FACEBOOK_STUB_FB_USER_ID,
+  isRealFacebookUser,
+} from "./facebookAccount.js";
+
+export {
+  extractFacebookReelUrl,
+  isFacebookReelUrl,
+  normalizeFacebookReelUrl,
+  parseFacebookReelId,
+  stripFacebookReelUrls,
+} from "./facebookReel.js";
+
 export const usernameSchema = z
   .string()
   .trim()

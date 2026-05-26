@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { PostReactionPicker } from "@/components/PostReactionPicker";
 import { CommentThread } from "@/components/CommentThread";
 import { BannerPositionEditor, bannerObjectPositionStyle } from "@/components/BannerPositionEditor";
+import { FacebookImportModal } from "@/components/FacebookImportModal";
 import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -438,18 +439,37 @@ function PostCard(props: {
           >
             {props.post.text}
           </div>
-        ) : props.post.type === "VIDEO_LINK" && props.post.text ? (
-          <div className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-200">{props.post.text}</div>
+        ) : props.post.type === "VIDEO_LINK" || props.post.type === "REEL" ? (
+          props.post.text ? (
+            <div className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-200">{props.post.text}</div>
+          ) : null
         ) : null}
 
-        {props.post.type === "VIDEO_LINK" && props.post.videoUrl ? (
-          <SharedLinkEmbed
-            href={props.post.videoUrl}
-            hostname={linkDisplayHost(props.post.videoUrl)}
-            title={props.post.linkTitle ?? linkDisplayHost(props.post.videoUrl)}
-            description={props.post.linkDescription}
-            heroUrl={props.post.linkPreviewUrl ?? undefined}
-          />
+        {(props.post.type === "VIDEO_LINK" || props.post.type === "REEL") && props.post.videoUrl ? (
+          props.post.type === "REEL" && !props.post.linkPreviewUrl && !props.post.linkTitle ? (
+            <div className="rounded-lg border border-zinc-800 bg-zinc-950/70 px-3 py-3">
+              <p className="text-sm font-medium text-zinc-300">This content isn&apos;t available right now</p>
+              <a
+                href={props.post.videoUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-2 inline-block break-all text-sm text-sky-300 hover:text-sky-200 hover:underline"
+              >
+                {props.post.videoUrl}
+              </a>
+            </div>
+          ) : (
+            <SharedLinkEmbed
+              href={props.post.videoUrl}
+              hostname={props.post.type === "REEL" ? "Facebook Reel" : linkDisplayHost(props.post.videoUrl)}
+              title={
+                props.post.linkTitle ??
+                (props.post.type === "REEL" ? "Facebook Reel" : linkDisplayHost(props.post.videoUrl))
+              }
+              description={props.post.linkDescription}
+              heroUrl={props.post.linkPreviewUrl ?? undefined}
+            />
+          )
         ) : null}
 
         {props.post.type === "PHOTO" && props.post.photoUrl ? (
@@ -731,6 +751,7 @@ export function ProfilePage() {
   const [composerBusy, setComposerBusy] = useState(false);
   const [composerTab, setComposerTab] = useState<"TEXT" | "PHOTO" | "VIDEO_LINK_VIDEO" | "VIDEO_LINK_WEB">("TEXT");
   const [composerErr, setComposerErr] = useState<string | null>(null);
+  const [fbImportOpen, setFbImportOpen] = useState(false);
   const [avatarSize, setAvatarSize] = useState<ImageSizePreset>("large");
   const [avatarSizeVisible, setAvatarSizeVisible] = useState(false);
   const avatarSizeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1303,12 +1324,25 @@ export function ProfilePage() {
                     value={composerTab}
                     onValueChange={(v) => setComposerTab(v as typeof composerTab)}
                   >
-                    <TabsList className="w-full justify-between md:w-auto">
-                      <TabsTrigger value="TEXT">Text</TabsTrigger>
-                      <TabsTrigger value="PHOTO">Photo</TabsTrigger>
-                      <TabsTrigger value="VIDEO_LINK_VIDEO">Video link</TabsTrigger>
-                      <TabsTrigger value="VIDEO_LINK_WEB">Web link</TabsTrigger>
-                    </TabsList>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <TabsList className="w-full justify-between md:w-auto">
+                        <TabsTrigger value="TEXT">Text</TabsTrigger>
+                        <TabsTrigger value="PHOTO">Photo</TabsTrigger>
+                        <TabsTrigger value="VIDEO_LINK_VIDEO">Video link</TabsTrigger>
+                        <TabsTrigger value="VIDEO_LINK_WEB">Web link</TabsTrigger>
+                      </TabsList>
+                      {profile.meta.isSelf && me?.hasRealFacebookAccount ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={composerBusy}
+                          onClick={() => setFbImportOpen(true)}
+                        >
+                          Import
+                        </Button>
+                      ) : null}
+                    </div>
 
                     <TabsContent value="TEXT">
                       <div className="grid gap-2">
@@ -1544,7 +1578,7 @@ export function ProfilePage() {
 
             {/* Two column-ish layout */}
             <div className="mt-6 grid gap-6 pb-24 md:grid-cols-[1fr_320px]">
-              <div className="space-y-5">
+              <div id="profile-feed" className="space-y-5 scroll-mt-24">
                 {profile.meta.isSelf ? (
                   <div className="space-y-3">
                     <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1706,6 +1740,16 @@ export function ProfilePage() {
           />
         </div>
       ) : null}
+
+      <FacebookImportModal
+        open={fbImportOpen}
+        onClose={() => setFbImportOpen(false)}
+        onImported={async () => {
+          setFeedTab("my");
+          await refreshPosts();
+          document.getElementById("profile-feed")?.scrollIntoView({ behavior: "smooth", block: "start" });
+        }}
+      />
     </div>
   );
 }
