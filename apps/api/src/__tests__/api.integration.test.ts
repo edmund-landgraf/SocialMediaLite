@@ -35,6 +35,9 @@ type PostRec = {
   linkTitle: string | null;
   linkDescription: string | null;
   linkPreviewImageKey: string | null;
+  textBackgroundColor: string | null;
+  textColor: string | null;
+  textFontSize: number | null;
   isPinned: boolean;
   sharedToFriendsFeed: boolean;
   createdAt: Date;
@@ -51,11 +54,21 @@ type CommentRec = {
   updatedAt: Date;
 };
 
+type FriendsFeedReviewRec = {
+  id: string;
+  viewerId: string;
+  postId: string;
+  status: "READ" | "SAVED" | "DISCARDED";
+  createdAt: Date;
+  updatedAt: Date;
+};
+
 const db = {
   users: [] as UserRec[],
   friendships: [] as FriendshipRec[],
   posts: [] as PostRec[],
   comments: [] as CommentRec[],
+  friendsFeedReviews: [] as FriendsFeedReviewRec[],
 };
 
 const storage = {
@@ -256,6 +269,9 @@ const prisma = {
         linkTitle: d.linkTitle ?? null,
         linkDescription: d.linkDescription ?? null,
         linkPreviewImageKey: d.linkPreviewImageKey ?? null,
+        textBackgroundColor: d.textBackgroundColor ?? null,
+        textColor: d.textColor ?? null,
+        textFontSize: d.textFontSize ?? null,
         sharedToFriendsFeed: d.sharedToFriendsFeed ?? false,
       };
       db.posts.push(rec);
@@ -267,10 +283,20 @@ const prisma = {
         _count: { comments: 0 },
       };
     },
-    async findUnique(args: { where: { id: string }; select?: { profileOwnerId: true }; include?: Record<string, unknown> }) {
+    async findUnique(args: {
+      where: { id: string };
+      select?: { profileOwnerId?: boolean; sharedToFriendsFeed?: boolean; id?: boolean };
+      include?: Record<string, unknown>;
+    }) {
       const row = db.posts.find((p) => p.id === args.where.id);
       if (!row) return null;
-      if (args.select?.profileOwnerId) return { profileOwnerId: row.profileOwnerId };
+      if (args.select) {
+        const out: Record<string, unknown> = {};
+        if (args.select.id) out.id = row.id;
+        if (args.select.profileOwnerId) out.profileOwnerId = row.profileOwnerId;
+        if (args.select.sharedToFriendsFeed) out.sharedToFriendsFeed = row.sharedToFriendsFeed;
+        return out;
+      }
       if (args.include) {
         return {
           ...row,
@@ -349,6 +375,60 @@ const prisma = {
       return { ...rec, author: findUserById(rec.authorId) };
     },
   },
+  friendsFeedReview: {
+    async findMany(args: {
+      where: { viewerId: string; postId?: { in: string[] }; status?: FriendsFeedReviewRec["status"]; updatedAt?: { lt: Date } };
+      select?: { postId: true; status: true; updatedAt: true };
+    }) {
+      let rows = db.friendsFeedReviews.filter((r) => r.viewerId === args.where.viewerId);
+      if (args.where.postId?.in) {
+        rows = rows.filter((r) => args.where.postId!.in.includes(r.postId));
+      }
+      if (args.where.status) rows = rows.filter((r) => r.status === args.where.status);
+      if (args.where.updatedAt?.lt) {
+        rows = rows.filter((r) => r.updatedAt.getTime() < args.where.updatedAt!.lt.getTime());
+      }
+      return rows.map((r) => ({ ...r }));
+    },
+    async upsert(args: {
+      where: { viewerId_postId: { viewerId: string; postId: string } };
+      create: Omit<FriendsFeedReviewRec, "id" | "createdAt" | "updatedAt">;
+      update: Pick<FriendsFeedReviewRec, "status">;
+    }) {
+      const existing = db.friendsFeedReviews.find(
+        (r) =>
+          r.viewerId === args.where.viewerId_postId.viewerId &&
+          r.postId === args.where.viewerId_postId.postId,
+      );
+      if (existing) {
+        existing.status = args.update.status;
+        existing.updatedAt = now();
+        return { ...existing };
+      }
+      const rec: FriendsFeedReviewRec = {
+        id: id(),
+        createdAt: now(),
+        updatedAt: now(),
+        viewerId: args.create.viewerId,
+        postId: args.create.postId,
+        status: args.create.status,
+      };
+      db.friendsFeedReviews.push(rec);
+      return { ...rec };
+    },
+    async deleteMany(args: {
+      where: { viewerId: string; status: FriendsFeedReviewRec["status"]; updatedAt?: { lt: Date } };
+    }) {
+      const before = db.friendsFeedReviews.length;
+      db.friendsFeedReviews = db.friendsFeedReviews.filter((r) => {
+        if (r.viewerId !== args.where.viewerId) return true;
+        if (r.status !== args.where.status) return true;
+        if (args.where.updatedAt?.lt && r.updatedAt.getTime() >= args.where.updatedAt.lt.getTime()) return true;
+        return false;
+      });
+      return { count: before - db.friendsFeedReviews.length };
+    },
+  },
   async $transaction<T>(fn: (tx: typeof prisma) => Promise<T>): Promise<T> {
     return fn(prisma);
   },
@@ -401,6 +481,7 @@ describe("api integration (phase 1)", () => {
     db.friendships = [];
     db.posts = [];
     db.comments = [];
+    db.friendsFeedReviews = [];
     storage.putObject.mockClear();
     storage.getPublicUrl.mockClear();
     storage.deleteObject.mockClear();
@@ -443,6 +524,35 @@ describe("api integration (phase 1)", () => {
     expect(list.status).toBe(200);
     expect(Array.isArray(list.body.posts)).toBe(true);
     expect(list.body.posts).toHaveLength(1);
+  });
+
+  it("stores text post styling when provided", async () => {
+    const { alice } = await createAgents();
+    await loginTestUser(alice);
+
+    const res = await alice.post("/api/users/testuser/posts").send({
+      type: "TEXT",
+      text: "styled hello",
+      textBackgroundColor: "#112233",
+      textColor: "#aabbcc",
+      textFontSize: 24,
+    });
+    expect(res.status).toBe(201);
+    expect(res.body.post.textBackgroundColor).toBe("#112233");
+    expect(res.body.post.textColor).toBe("#aabbcc");
+    expect(res.body.post.textFontSize).toBe(24);
+  });
+
+  it("rejects text post font size outside allowed range", async () => {
+    const { alice } = await createAgents();
+    await loginTestUser(alice);
+
+    const res = await alice.post("/api/users/testuser/posts").send({
+      type: "TEXT",
+      text: "too big",
+      textFontSize: 48,
+    });
+    expect(res.status).toBe(400);
   });
 
   it("allows posting to another user's page only after friendship is accepted", async () => {
@@ -540,11 +650,38 @@ describe("api integration (phase 1)", () => {
     expect(shared.status).toBe(200);
     expect(shared.body.post.sharedToFriendsFeed).toBe(true);
 
-    const feed = await alice.get("/api/users/testuser/friends-feed");
+    const feed = await alice.get("/api/users/testuser/friends-feed?bucket=unread");
     expect(feed.status).toBe(200);
     expect(feed.body.posts).toHaveLength(1);
     expect(feed.body.posts[0].text).toBe("share me to alice feed");
     expect(feed.body.meta.sharableTotal).toBe(1);
+    expect(feed.body.meta.bucket).toBe("unread");
+    expect(feed.body.meta.counts.unread).toBe(1);
+
+    const read = await alice.post(`/api/posts/${postId}/friends-feed-review`).send({ action: "read" });
+    expect(read.status).toBe(200);
+
+    const unreadAfter = await alice.get("/api/users/testuser/friends-feed?bucket=unread");
+    expect(unreadAfter.body.posts).toHaveLength(0);
+    expect(unreadAfter.body.meta.counts.read).toBe(1);
+
+    const readFeed = await alice.get("/api/users/testuser/friends-feed?bucket=read");
+    expect(readFeed.body.posts).toHaveLength(1);
+    expect(readFeed.body.posts[0].text).toBe("share me to alice feed");
+
+    const saved = await alice.post(`/api/posts/${postId}/friends-feed-review`).send({ action: "save" });
+    expect(saved.status).toBe(200);
+
+    const savedFeed = await alice.get("/api/users/testuser/friends-feed?bucket=saved");
+    expect(savedFeed.body.posts).toHaveLength(1);
+    expect(savedFeed.body.meta.counts.saved).toBe(1);
+
+    const discard = await alice.post(`/api/posts/${postId}/friends-feed-review`).send({ action: "discard" });
+    expect(discard.status).toBe(200);
+
+    const discardedFeed = await alice.get("/api/users/testuser/friends-feed?bucket=discarded");
+    expect(discardedFeed.body.posts).toHaveLength(1);
+    expect(discardedFeed.body.meta.counts.discarded).toBe(1);
 
     const unshared = await bob.post(`/api/posts/${postId}/friends-feed-share`).send({ shared: false });
     expect(unshared.status).toBe(200);

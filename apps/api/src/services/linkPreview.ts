@@ -2,6 +2,7 @@ import dns from "node:dns/promises";
 import net from "node:net";
 import type { StorageProvider } from "../storage/types.js";
 import { resizeLinkPreviewHero } from "./image.js";
+import { fetchYouTubeMetadata, isYouTubeHostname } from "./youtubeMetadata.js";
 
 const MAX_REDIRECTS = 5;
 const FETCH_TIMEOUT_MS = 12_000;
@@ -9,9 +10,22 @@ const MAX_HTML_BYTES = 600_000;
 const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
 
 const LINK_TITLE_MAX = 300;
-const LINK_DESC_MAX = 600;
+const LINK_DESC_MAX = 1200;
 
-const UA = "SocialMediaLite-LinkPreview/1.0 (+https://github.com/)";
+/** Unfurl/crawler UA — Medium and similar sites block generic browsers (Cloudflare 403). */
+const UA = "Twitterbot/1.0";
+const UA_FALLBACK = "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)";
+
+function isBlockedPreviewPage(title: string | null, html: string): boolean {
+  const t = title?.trim().toLowerCase() ?? "";
+  if (t.includes("just a moment")) return true;
+  if (t === "access denied" || t === "forbidden") return true;
+  // Only inspect early HTML (head / challenge shell), not article body text.
+  const head = html.slice(0, 12_000);
+  if (/cf-browser-verification|challenge-platform/i.test(head)) return true;
+  if (/performing security verification/i.test(head)) return true;
+  return false;
+}
 
 function clamp(s: string | null, max: number): string | null {
   if (s == null || s === "") return null;
@@ -84,19 +98,27 @@ export async function assertOutboundUrlSafe(urlStr: string): Promise<URL> {
   return u;
 }
 
-function metaPropertyContent(html: string, property: string): string | null {
-  const escaped = property.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const rePropFirst = new RegExp(
-    `<meta\\s[^>]*property=["']${escaped}["'][^>]*content=["']([^"']*)["']`,
+function metaAttributeContent(html: string, attr: "property" | "name", key: string): string | null {
+  const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const reKeyFirst = new RegExp(
+    `<meta\\s[^>]*${attr}=["']${escaped}["'][^>]*content=["']([^"']*)["']`,
     "is",
   );
   const reContentFirst = new RegExp(
-    `<meta\\s[^>]*content=["']([^"']*)["'][^>]*property=["']${escaped}["']`,
+    `<meta\\s[^>]*content=["']([^"']*)["'][^>]*${attr}=["']${escaped}["']`,
     "is",
   );
-  const m = html.match(rePropFirst)?.[1] ?? html.match(reContentFirst)?.[1];
+  const m = html.match(reKeyFirst)?.[1] ?? html.match(reContentFirst)?.[1];
   const raw = m?.trim();
   return raw ? decodeBasicEntities(raw) : null;
+}
+
+function metaPropertyContent(html: string, property: string): string | null {
+  return metaAttributeContent(html, "property", property);
+}
+
+function metaNameContent(html: string, name: string): string | null {
+  return metaAttributeContent(html, "name", name);
 }
 
 function readTitleTag(html: string): string | null {
@@ -111,8 +133,125 @@ function pickOgImage(html: string): string | null {
     metaPropertyContent(html, "og:image:secure_url") ??
     metaPropertyContent(html, "og:image:url") ??
     metaPropertyContent(html, "og:image") ??
-    metaPropertyContent(html, "twitter:image")
+    metaPropertyContent(html, "twitter:image") ??
+    metaNameContent(html, "twitter:image") ??
+    metaNameContent(html, "twitter:image:src")
   );
+}
+
+function readJsonLdDescription(html: string): string | null {
+  const re = /<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(html)) !== null) {
+    const raw = match[1]?.trim();
+    if (!raw) continue;
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      const found = findDescriptionInJsonLd(parsed);
+      if (found) return found;
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
+function findTitleInJsonLd(node: unknown): string | null {
+  if (node == null) return null;
+  if (Array.isArray(node)) {
+    for (const item of node) {
+      const t = findTitleInJsonLd(item);
+      if (t) return t;
+    }
+    return null;
+  }
+  if (typeof node !== "object") return null;
+  const obj = node as Record<string, unknown>;
+  for (const key of ["headline", "name", "title"] as const) {
+    const v = obj[key];
+    if (typeof v === "string" && v.trim()) return decodeBasicEntities(v.trim());
+  }
+  const graph = obj["@graph"];
+  if (Array.isArray(graph)) {
+    for (const item of graph) {
+      const t = findTitleInJsonLd(item);
+      if (t) return t;
+    }
+  }
+  return null;
+}
+
+function readJsonLdTitle(html: string): string | null {
+  const re = /<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(html)) !== null) {
+    const raw = match[1]?.trim();
+    if (!raw) continue;
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      const found = findTitleInJsonLd(parsed);
+      if (found) return found;
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
+function findDescriptionInJsonLd(node: unknown): string | null {
+  if (node == null) return null;
+  if (Array.isArray(node)) {
+    for (const item of node) {
+      const d = findDescriptionInJsonLd(item);
+      if (d) return d;
+    }
+    return null;
+  }
+  if (typeof node !== "object") return null;
+  const obj = node as Record<string, unknown>;
+  const direct = obj.description;
+  if (typeof direct === "string" && direct.trim()) return decodeBasicEntities(direct.trim());
+
+  const graph = obj["@graph"];
+  if (Array.isArray(graph)) {
+    for (const item of graph) {
+      const d = findDescriptionInJsonLd(item);
+      if (d) return d;
+    }
+  }
+
+  return null;
+}
+
+function pickDescription(html: string): string | null {
+  const candidates = [
+    metaPropertyContent(html, "og:description"),
+    metaPropertyContent(html, "twitter:description"),
+    metaNameContent(html, "description"),
+    metaNameContent(html, "twitter:description"),
+    readJsonLdDescription(html),
+  ];
+  for (const c of candidates) {
+    const t = c?.trim();
+    if (t) return t;
+  }
+  return null;
+}
+
+function pickTitle(html: string): string | null {
+  const candidates = [
+    metaPropertyContent(html, "og:title"),
+    metaPropertyContent(html, "twitter:title"),
+    metaNameContent(html, "title"),
+    metaNameContent(html, "twitter:title"),
+    readJsonLdTitle(html),
+    readTitleTag(html),
+  ];
+  for (const c of candidates) {
+    const t = c?.trim();
+    if (t) return decodeBasicEntities(t);
+  }
+  return null;
 }
 
 function absolutize(candidate: string | null, base: URL): string | null {
@@ -129,23 +268,18 @@ export function parseOgFromHtml(html: string, pageUrl: URL): {
   description: string | null;
   imageUrl: string | null;
 } {
-  const ogTitle =
-    metaPropertyContent(html, "og:title") ?? metaPropertyContent(html, "twitter:title");
-  const ogDesc =
-    metaPropertyContent(html, "og:description") ??
-    metaPropertyContent(html, "twitter:description");
   const ogImageAbs = absolutize(pickOgImage(html), pageUrl);
-
-  const titleFallback = readTitleTag(html);
-  const title = ogTitle?.trim() || titleFallback?.trim() || null;
-  const description = ogDesc?.trim() || null;
-
-  return { title: title ? decodeBasicEntities(title) : null, description, imageUrl: ogImageAbs };
+  return {
+    title: pickTitle(html),
+    description: pickDescription(html),
+    imageUrl: ogImageAbs,
+  };
 }
 
-async function fetchLimited(
+async function fetchLimitedWithUa(
   urlStr: string,
   maxBytes: number,
+  userAgent: string,
 ): Promise<{ finalUrl: string; buf: Buffer; contentType: string }> {
   let current = urlStr;
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
@@ -160,7 +294,7 @@ async function fetchLimited(
         signal: ctl.signal,
         headers: {
           Accept: "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8",
-          "User-Agent": UA,
+          "User-Agent": userAgent,
         },
       });
     } finally {
@@ -184,6 +318,26 @@ async function fetchLimited(
     return { finalUrl: current, buf, contentType: ct };
   }
   throw new Error("Too many redirects");
+}
+
+async function fetchLimited(
+  urlStr: string,
+  maxBytes: number,
+): Promise<{ finalUrl: string; buf: Buffer; contentType: string }> {
+  let lastErr: Error | null = null;
+  for (const ua of [UA, UA_FALLBACK]) {
+    try {
+      const fetched = await fetchLimitedWithUa(urlStr, maxBytes, ua);
+      const page = await assertOutboundUrlSafe(fetched.finalUrl);
+      const html = fetched.buf.toString("utf8");
+      const { title } = parseOgFromHtml(html, page);
+      if (!isBlockedPreviewPage(title, html)) return fetched;
+      lastErr = new Error("Preview blocked by bot protection");
+    } catch (e) {
+      lastErr = e instanceof Error ? e : new Error(String(e));
+    }
+  }
+  throw lastErr ?? new Error("Fetch failed");
 }
 
 async function fetchImageBuffer(imageUrlStr: string): Promise<Buffer> {
@@ -231,6 +385,23 @@ export async function fetchLinkPreviewMetadata(pageUrlStr: string): Promise<{
 }> {
   const first = await assertOutboundUrlSafe(pageUrlStr);
   const hostname = first.hostname;
+
+  if (isYouTubeHostname(hostname)) {
+    try {
+      const yt = await fetchYouTubeMetadata(first);
+      if (yt) {
+        return {
+          url: first.href.split("#")[0] ?? first.href,
+          hostname,
+          title: clamp(yt.title, LINK_TITLE_MAX),
+          description: clamp(yt.description, LINK_DESC_MAX),
+          remoteImageUrl: yt.thumbnailUrl,
+        };
+      }
+    } catch {
+      /* fall through to HTML / hostname fallback */
+    }
+  }
 
   try {
     const { finalUrl, buf } = await fetchLimited(pageUrlStr, MAX_HTML_BYTES);
@@ -289,6 +460,42 @@ export async function buildStoredLinkPreview(opts: {
   let linkTitle: string | null = null;
   let linkDescription: string | null = null;
   let linkPreviewImageKey: string | null = null;
+
+  if (isYouTubeHostname(pageSafe.hostname)) {
+    try {
+      const yt = await fetchYouTubeMetadata(pageSafe);
+      if (yt) {
+        linkTitle = clamp(yt.title, LINK_TITLE_MAX);
+        linkDescription = clamp(yt.description, LINK_DESC_MAX);
+        let imgUrl: string | null = yt.thumbnailUrl;
+        if (imgUrl) {
+          try {
+            await assertOutboundUrlSafe(imgUrl);
+          } catch {
+            imgUrl = null;
+          }
+        }
+        if (imgUrl) {
+          try {
+            const rawImg = await fetchImageBuffer(imgUrl);
+            const processed = await resizeLinkPreviewHero(rawImg);
+            const key = `users/${opts.authorId}/link-preview-${Date.now()}.webp`;
+            await opts.storage.putObject({
+              key,
+              contentType: processed.contentType,
+              buffer: processed.buffer,
+            });
+            linkPreviewImageKey = key;
+          } catch {
+            linkPreviewImageKey = null;
+          }
+        }
+        return { linkTitle, linkDescription, linkPreviewImageKey };
+      }
+    } catch {
+      /* fall through to HTML scrape */
+    }
+  }
 
   try {
     const { finalUrl, buf } = await fetchLimited(opts.pageUrlStr, MAX_HTML_BYTES);

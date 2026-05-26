@@ -1,13 +1,20 @@
-import { Loader2, Minus, Plus } from "lucide-react";
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Loader2, Minus, Plus, X } from "lucide-react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type CSSProperties } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import {
+  TEXT_POST_BG_DEFAULT,
+  TEXT_POST_COLOR_DEFAULT,
+  TEXT_POST_FONT_SIZE_DEFAULT,
+  TEXT_POST_FONT_SIZE_MAX,
+  TEXT_POST_FONT_SIZE_MIN,
+} from "@socialmedialite/shared";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { ApiError, apiFetch, apiJson } from "@/lib/api";
-import type { CommentDTO, CommentTreeNode, FriendsFeedMeta, PostDTO, ProfileMeta, PublicUser } from "@/types";
+import type { CommentDTO, CommentTreeNode, FriendsFeedBucket, FriendsFeedMeta, PostDTO, ProfileMeta, PublicUser } from "@/types";
 
 type MeResp = {
   user: PublicUser & { bannerUrl?: string | null };
@@ -36,6 +43,22 @@ function readStoredSize(key: string, fallback: ImageSizePreset): ImageSizePreset
   return fallback;
 }
 
+function textPostHasStyle(post: PostDTO): boolean {
+  return (
+    post.type === "TEXT" &&
+    (post.textBackgroundColor != null || post.textColor != null || post.textFontSize != null)
+  );
+}
+
+function textPostInlineStyle(post: PostDTO): CSSProperties | undefined {
+  if (!textPostHasStyle(post)) return undefined;
+  return {
+    backgroundColor: post.textBackgroundColor ?? TEXT_POST_BG_DEFAULT,
+    color: post.textColor ?? TEXT_POST_COLOR_DEFAULT,
+    fontSize: `${post.textFontSize ?? TEXT_POST_FONT_SIZE_DEFAULT}px`,
+  };
+}
+
 function formatTime(iso: string) {
   const d = new Date(iso);
   return d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
@@ -47,6 +70,35 @@ function linkDisplayHost(url: string): string {
   } catch {
     return "Link";
   }
+}
+
+/** Hover popup cap — longer than the 2-line preview; aligned with API link description max. */
+const LINK_DESCRIPTION_POPUP_MAX = 840;
+
+function linkDescriptionPopupText(description: string): string {
+  const trimmed = description.trim();
+  if (trimmed.length <= LINK_DESCRIPTION_POPUP_MAX) return trimmed;
+  return `${trimmed.slice(0, LINK_DESCRIPTION_POPUP_MAX - 1)}…`;
+}
+
+/** Two-line preview only; full summary lives in the native `title` tooltip (not in the card). */
+function LinkPreviewDescription(props: { description: string; compact?: boolean }) {
+  const trimmed = props.description.trim();
+  const tooltipText = linkDescriptionPopupText(trimmed);
+  const showTooltip = trimmed.length > 0;
+
+  return (
+    <span
+      className={[
+        "line-clamp-2 overflow-hidden text-zinc-400",
+        props.compact ? "text-[11px] leading-relaxed" : "text-xs leading-relaxed",
+        showTooltip ? "cursor-help underline decoration-zinc-700 decoration-dotted underline-offset-2" : "",
+      ].join(" ")}
+      title={showTooltip ? tooltipText : undefined}
+    >
+      {props.description}
+    </span>
+  );
 }
 
 /** Social-style link card: fixed hero slot (476×248 server crop for stored posts; composer may use remote OG URL). */
@@ -67,14 +119,14 @@ function SharedLinkEmbed(props: {
   const pad = props.compact ? "p-2.5" : "p-3";
 
   return (
-    <a
-      href={props.href}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="block overflow-hidden rounded-lg border border-zinc-800 bg-zinc-950/70 text-left no-underline transition-colors hover:border-zinc-700 hover:bg-zinc-900/50"
-    >
+    <div className="overflow-hidden rounded-lg border border-zinc-800 bg-zinc-950/70 text-left transition-colors hover:border-zinc-700 hover:bg-zinc-900/50">
       <div className="flex flex-col sm:flex-row">
-        <div className="relative h-[124px] w-full shrink-0 bg-zinc-900 sm:h-[124px] sm:w-[238px]">
+        <a
+          href={props.href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="relative h-[124px] w-full shrink-0 overflow-hidden bg-zinc-900 sm:h-[124px] sm:w-[238px] sm:rounded-l-lg"
+        >
           {props.heroUrl && !heroBroken ? (
             <img
               src={props.heroUrl}
@@ -89,37 +141,37 @@ function SharedLinkEmbed(props: {
               <span className="font-normal lowercase tracking-normal text-zinc-700">476×248 frame</span>
             </div>
           )}
-        </div>
+        </a>
         <div className={`min-w-0 flex-1 ${pad} flex flex-col justify-center gap-1`}>
-          <div
-            className={[
-              "font-semibold uppercase tracking-wider text-zinc-500",
-              props.compact ? "text-[9px]" : "text-[10px]",
-            ].join(" ")}
+          <a
+            href={props.href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="min-w-0 text-inherit no-underline hover:text-zinc-50"
           >
-            {props.hostname}
-          </div>
-          <div
-            className={[
-              "line-clamp-2 font-semibold text-zinc-100",
-              props.compact ? "text-[13px] leading-snug" : "text-sm leading-snug",
-            ].join(" ")}
-          >
-            {props.title}
-          </div>
-          {props.description ? (
             <div
               className={[
-                "line-clamp-2 text-zinc-400",
-                props.compact ? "text-[11px] leading-relaxed" : "text-xs leading-relaxed",
+                "font-semibold uppercase tracking-wider text-zinc-500",
+                props.compact ? "text-[9px]" : "text-[10px]",
               ].join(" ")}
             >
-              {props.description}
+              {props.hostname}
             </div>
+            <div
+              className={[
+                "line-clamp-2 overflow-hidden font-semibold text-zinc-100",
+                props.compact ? "text-[13px] leading-snug" : "text-sm leading-snug",
+              ].join(" ")}
+            >
+              {props.title}
+            </div>
+          </a>
+          {props.description?.trim() ? (
+            <LinkPreviewDescription description={props.description} compact={props.compact} />
           ) : null}
         </div>
       </div>
-    </a>
+    </div>
   );
 }
 
@@ -479,6 +531,9 @@ function PostCard(props: {
   canEditCaption: boolean;
   canShareToFriendsFeed: boolean;
   showFeedSource: boolean;
+  showFriendsFeedReview?: boolean;
+  friendsFeedReviewBusy?: boolean;
+  onFriendsFeedReview?: (action: "read" | "save" | "discard") => void;
   onChanged: () => void;
 }) {
   const [commentsOpen, setCommentsOpen] = useState(false);
@@ -585,9 +640,14 @@ function PostCard(props: {
               ring
             />
             <div className="min-w-0">
-              <div className="truncate text-[15px] font-semibold text-zinc-100">
+              <Link
+                to={`/${props.post.author.username}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block truncate text-[15px] font-semibold text-zinc-100 hover:text-zinc-50 hover:underline"
+              >
                 {props.post.author.displayName}
-              </div>
+              </Link>
               <div className="text-xs text-zinc-500">{formatTime(props.post.createdAt)}</div>
               {props.showFeedSource && props.post.profileOwner ? (
                 <div className="mt-0.5 text-[11px] text-zinc-500">
@@ -626,7 +686,17 @@ function PostCard(props: {
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
-        {props.post.type !== "PHOTO" && props.post.text ? (
+        {props.post.type === "TEXT" && props.post.text ? (
+          <div
+            className={[
+              "whitespace-pre-wrap leading-relaxed",
+              textPostHasStyle(props.post) ? "rounded-lg px-3 py-2" : "text-sm text-zinc-200",
+            ].join(" ")}
+            style={textPostInlineStyle(props.post)}
+          >
+            {props.post.text}
+          </div>
+        ) : props.post.type === "VIDEO_LINK" && props.post.text ? (
           <div className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-200">{props.post.text}</div>
         ) : null}
 
@@ -705,46 +775,79 @@ function PostCard(props: {
         ) : null}
 
         <div className="flex flex-wrap items-center gap-2 border-t border-zinc-900 pt-3">
-          <Button variant="ghost" size="sm" onClick={() => setCommentsOpen((v) => !v)}>
-            Comment {props.post._count.comments ? `(${props.post._count.comments})` : null}
-          </Button>
-          {props.canShareToFriendsFeed ? (
-            props.post.sharedToFriendsFeed ? (
-              <>
-                <Button variant="secondary" size="sm" disabled>
-                  Shared
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  disabled={shareBusy}
-                  onClick={() => void setFriendsFeedShare(false)}
-                >
-                  Unshare
-                </Button>
-              </>
-            ) : (
+          {props.showFriendsFeedReview ? (
+            <>
+              <Button
+                variant="secondary"
+                size="sm"
+                disabled={props.friendsFeedReviewBusy}
+                onClick={() => props.onFriendsFeedReview?.("read")}
+              >
+                Read
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                disabled={props.friendsFeedReviewBusy}
+                onClick={() => props.onFriendsFeedReview?.("save")}
+              >
+                Save
+              </Button>
               <Button
                 variant="ghost"
                 size="sm"
-                disabled={shareBusy}
-                onClick={() => void setFriendsFeedShare(true)}
+                disabled={props.friendsFeedReviewBusy}
+                onClick={() => props.onFriendsFeedReview?.("discard")}
               >
-                Share
+                Discard
               </Button>
-            )
-          ) : null}
-          <Button variant="ghost" size="sm" disabled title="likes come later">
-            Like
-          </Button>
+            </>
+          ) : (
+            <>
+              <Button variant="ghost" size="sm" onClick={() => setCommentsOpen((v) => !v)}>
+                Comment {props.post._count.comments ? `(${props.post._count.comments})` : null}
+              </Button>
+              {props.canShareToFriendsFeed ? (
+                props.post.sharedToFriendsFeed ? (
+                  <>
+                    <Button variant="secondary" size="sm" disabled>
+                      Shared
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={shareBusy}
+                      onClick={() => void setFriendsFeedShare(false)}
+                    >
+                      Unshare
+                    </Button>
+                  </>
+                ) : (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={shareBusy}
+                    onClick={() => void setFriendsFeedShare(true)}
+                  >
+                    Share
+                  </Button>
+                )
+              ) : null}
+              <Button variant="ghost" size="sm" disabled title="likes come later">
+                Like
+              </Button>
+            </>
+          )}
         </div>
 
-        <CommentThread
-          postId={props.post.id}
-          open={commentsOpen}
-          onClose={() => setCommentsOpen(false)}
-          onChanged={() => props.onChanged()}
-        />
+        {!props.showFriendsFeedReview ? (
+          <CommentThread
+            postId={props.post.id}
+            open={commentsOpen}
+            onClose={() => setCommentsOpen(false)}
+            onChanged={() => props.onChanged()}
+          />
+        ) : null}
       </CardContent>
     </Card>
   );
@@ -758,6 +861,8 @@ export function ProfilePage() {
   const [profile, setProfile] = useState<ProfileResp | null>(null);
   const [posts, setPosts] = useState<PostDTO[] | null>(null);
   const [friendsFeedMeta, setFriendsFeedMeta] = useState<FriendsFeedMeta | null>(null);
+  const [friendsFeedBucket, setFriendsFeedBucket] = useState<FriendsFeedBucket>("unread");
+  const [friendsFeedReviewBusyId, setFriendsFeedReviewBusyId] = useState<string | null>(null);
   const [feedTab, setFeedTab] = useState<"my" | "friends">("my");
   const [friends, setFriends] = useState<PublicUser[] | null>(null);
   const [loading, setLoading] = useState(true);
@@ -778,14 +883,30 @@ export function ProfilePage() {
     setFriendsFeedMeta(null);
   }, [name]);
 
-  const refreshFriendsFeed = useCallback(async () => {
+  const refreshFriendsFeed = useCallback(async (bucket: FriendsFeedBucket = friendsFeedBucket) => {
     if (!name) return;
     const data = await apiJson<{ posts: PostDTO[]; meta: FriendsFeedMeta }>(
-      `/api/users/${encodeURIComponent(name)}/friends-feed`,
+      `/api/users/${encodeURIComponent(name)}/friends-feed?bucket=${encodeURIComponent(bucket)}`,
     );
     setPosts(data.posts);
     setFriendsFeedMeta(data.meta);
-  }, [name]);
+  }, [name, friendsFeedBucket]);
+
+  const reviewFriendsFeedPost = useCallback(
+    async (postId: string, action: "read" | "save" | "discard") => {
+      setFriendsFeedReviewBusyId(postId);
+      try {
+        await apiJson(`/api/posts/${postId}/friends-feed-review`, {
+          method: "POST",
+          body: JSON.stringify({ action }),
+        });
+        await refreshFriendsFeed(friendsFeedBucket);
+      } finally {
+        setFriendsFeedReviewBusyId(null);
+      }
+    },
+    [friendsFeedBucket, refreshFriendsFeed],
+  );
 
   const refreshActiveFeed = useCallback(async () => {
     if (feedTab === "friends") return refreshFriendsFeed();
@@ -841,9 +962,9 @@ export function ProfilePage() {
 
   useEffect(() => {
     if (!profile?.meta.isSelf || loading) return;
-    if (feedTab === "friends") void refreshFriendsFeed().catch(() => undefined);
+    if (feedTab === "friends") void refreshFriendsFeed(friendsFeedBucket).catch(() => undefined);
     else void refreshPosts().catch(() => undefined);
-  }, [feedTab, profile?.meta.isSelf, loading, refreshFriendsFeed, refreshPosts]);
+  }, [feedTab, friendsFeedBucket, profile?.meta.isSelf, loading, refreshFriendsFeed, refreshPosts]);
 
   async function logout() {
     await apiFetch("/api/auth/logout", { method: "POST" });
@@ -851,6 +972,10 @@ export function ProfilePage() {
   }
 
   const [composerText, setComposerText] = useState("");
+  const [composerTextBg, setComposerTextBg] = useState(TEXT_POST_BG_DEFAULT);
+  const [composerTextColor, setComposerTextColor] = useState(TEXT_POST_COLOR_DEFAULT);
+  const [composerTextFontSize, setComposerTextFontSize] = useState(TEXT_POST_FONT_SIZE_DEFAULT);
+  const [textComposerKey, setTextComposerKey] = useState(0);
   const [composerVideo, setComposerVideo] = useState("");
   const [composerPhotoCaption, setComposerPhotoCaption] = useState("");
   const [composerPhotoFile, setComposerPhotoFile] = useState<File | null>(null);
@@ -948,6 +1073,14 @@ export function ProfilePage() {
     avatarSizeTimerRef.current = setTimeout(() => setAvatarSizeVisible(false), 1100);
   }
 
+  function clearTextComposer() {
+    setComposerText("");
+    setComposerTextBg(TEXT_POST_BG_DEFAULT);
+    setComposerTextColor(TEXT_POST_COLOR_DEFAULT);
+    setComposerTextFontSize(TEXT_POST_FONT_SIZE_DEFAULT);
+    setTextComposerKey((k) => k + 1);
+  }
+
   async function createTextOrVideo(kind: "TEXT" | "VIDEO_LINK") {
     if (!profile?.meta.canViewContent) return;
 
@@ -959,18 +1092,25 @@ export function ProfilePage() {
       if (kind === "TEXT") {
         await apiJson(`/api/users/${encodeURIComponent(owner)}/posts`, {
           method: "POST",
-          body: JSON.stringify({ type: "TEXT", text: composerText }),
+          body: JSON.stringify({
+            type: "TEXT",
+            text: composerText,
+            textBackgroundColor: composerTextBg,
+            textColor: composerTextColor,
+            textFontSize: composerTextFontSize,
+          }),
         });
+        clearTextComposer();
       } else {
         await apiJson(`/api/users/${encodeURIComponent(owner)}/posts`, {
           method: "POST",
           body: JSON.stringify({ type: "VIDEO_LINK", videoUrl: composerVideo, text: composerText || undefined }),
         });
+        setComposerText("");
+        setComposerVideo("");
       }
 
-      setComposerText("");
-      setComposerVideo("");
-      await refreshPosts();
+      await refreshActiveFeed();
     } catch (e) {
       setComposerErr(e instanceof Error ? e.message : "Failed creating post");
     } finally {
@@ -978,11 +1118,34 @@ export function ProfilePage() {
     }
   }
 
-  function stagePhoto(files: FileList | null) {
-    const file = files?.item(0);
-    if (!file) return;
+  function stagePhotoFromFile(file: File | null | undefined) {
+    if (!file?.type.startsWith("image/")) return;
     setComposerPhotoFile(file);
     setComposerErr(null);
+  }
+
+  function stagePhoto(files: FileList | null) {
+    stagePhotoFromFile(files?.item(0));
+  }
+
+  function handlePhotoPaste(e: ClipboardEvent<HTMLInputElement>) {
+    const items = e.clipboardData?.items;
+    if (items?.length) {
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (item?.type.startsWith("image/")) {
+          e.preventDefault();
+          stagePhotoFromFile(item.getAsFile());
+          return;
+        }
+      }
+    }
+
+    const pasted = e.clipboardData?.files?.item(0);
+    if (pasted?.type.startsWith("image/")) {
+      e.preventDefault();
+      stagePhotoFromFile(pasted);
+    }
   }
 
   function clearStagedPhoto() {
@@ -1331,10 +1494,57 @@ export function ProfilePage() {
 
                     <TabsContent value="TEXT">
                       <div className="grid gap-2">
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-zinc-400">
+                          <label className="flex items-center gap-2">
+                            <span className="shrink-0">Background</span>
+                            <input
+                              type="color"
+                              value={composerTextBg}
+                              disabled={composerBusy}
+                              onChange={(e) => setComposerTextBg(e.target.value)}
+                              aria-label="Text post background color"
+                              className="size-8 cursor-pointer rounded border border-zinc-700 bg-transparent p-0.5 disabled:cursor-not-allowed disabled:opacity-50"
+                            />
+                          </label>
+                          <label className="flex items-center gap-2">
+                            <span className="shrink-0">Text color</span>
+                            <input
+                              type="color"
+                              value={composerTextColor}
+                              disabled={composerBusy}
+                              onChange={(e) => setComposerTextColor(e.target.value)}
+                              aria-label="Text post text color"
+                              className="size-8 cursor-pointer rounded border border-zinc-700 bg-transparent p-0.5 disabled:cursor-not-allowed disabled:opacity-50"
+                            />
+                          </label>
+                          <label className="flex min-w-[220px] flex-1 items-center gap-2">
+                            <span className="shrink-0">
+                              Font size ({composerTextFontSize}px)
+                            </span>
+                            <input
+                              type="range"
+                              min={TEXT_POST_FONT_SIZE_MIN}
+                              max={TEXT_POST_FONT_SIZE_MAX}
+                              value={composerTextFontSize}
+                              disabled={composerBusy}
+                              onChange={(e) => setComposerTextFontSize(Number(e.target.value))}
+                              aria-label="Text post font size"
+                              className="min-w-[100px] flex-1 accent-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
+                            />
+                          </label>
+                        </div>
                         <Textarea
+                          key={textComposerKey}
                           placeholder="Say something…"
                           value={composerText}
                           onChange={(e) => setComposerText(e.target.value)}
+                          disabled={composerBusy}
+                          className="min-h-[96px] leading-relaxed"
+                          style={{
+                            backgroundColor: composerTextBg,
+                            color: composerTextColor,
+                            fontSize: `${composerTextFontSize}px`,
+                          }}
                         />
                         <Button
                           disabled={
@@ -1350,18 +1560,47 @@ export function ProfilePage() {
                     <TabsContent value="PHOTO">
                       <div className="grid gap-2">
                         <div className="text-xs leading-relaxed text-zinc-500">
-                          Upload photos up to roughly 500KB after compression—larger originals are shrunk when possible,
-                          otherwise you’ll get guidance to paste a hosted link URL instead (Phase 2+).
+                          Paste an image from your clipboard or upload a file. Photos are compressed to roughly 500KB when
+                          possible; otherwise you’ll get guidance to share a hosted link instead (Phase 2+).
                         </div>
-                        <Input
-                          ref={photoInputRef}
-                          type="file"
-                          accept="image/*"
-                          disabled={composerBusy}
-                          onChange={(e) => stagePhoto(e.target.files)}
-                        />
+                        <div className="flex flex-wrap gap-2">
+                          <Input
+                            placeholder="Paste image here (Ctrl+V)"
+                            disabled={composerBusy}
+                            onPaste={handlePhotoPaste}
+                            aria-label="Paste photo from clipboard"
+                            className="min-w-[200px] flex-1"
+                          />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            disabled={composerBusy}
+                            onClick={() => photoInputRef.current?.click()}
+                          >
+                            Upload
+                          </Button>
+                          <input
+                            ref={photoInputRef}
+                            type="file"
+                            accept="image/*"
+                            disabled={composerBusy}
+                            className="hidden"
+                            onChange={(e) => stagePhoto(e.target.files)}
+                          />
+                        </div>
                         {composerPhotoPreviewUrl ? (
-                          <div className="overflow-hidden rounded-lg border border-zinc-800 bg-zinc-950/50 p-2">
+                          <div className="relative overflow-hidden rounded-lg border border-zinc-800 bg-zinc-950/50 p-2">
+                            <Button
+                              type="button"
+                              variant="secondary"
+                              size="icon"
+                              disabled={composerBusy}
+                              onClick={clearStagedPhoto}
+                              aria-label="Remove photo"
+                              className="absolute right-3 top-3 z-10 size-8 bg-zinc-900/90 shadow-sm"
+                            >
+                              <X />
+                            </Button>
                             <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
                               Photo ready
                             </div>
@@ -1489,27 +1728,58 @@ export function ProfilePage() {
             <div className="mt-6 grid gap-6 pb-24 md:grid-cols-[1fr_320px]">
               <div className="space-y-5">
                 {profile.meta.isSelf ? (
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="flex gap-2">
-                      <Button
-                        variant={feedTab === "my" ? "default" : "secondary"}
-                        size="sm"
-                        onClick={() => setFeedTab("my")}
-                      >
-                        My feed
-                      </Button>
-                      <Button
-                        variant={feedTab === "friends" ? "default" : "secondary"}
-                        size="sm"
-                        onClick={() => setFeedTab("friends")}
-                      >
-                        Friends feed
-                      </Button>
+                  <div className="space-y-3">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="flex gap-2">
+                        <Button
+                          variant={feedTab === "my" ? "default" : "secondary"}
+                          size="sm"
+                          onClick={() => setFeedTab("my")}
+                        >
+                          My feed
+                        </Button>
+                        <Button
+                          variant={feedTab === "friends" ? "default" : "secondary"}
+                          size="sm"
+                          onClick={() => {
+                            setFeedTab("friends");
+                            setFriendsFeedBucket("unread");
+                          }}
+                        >
+                          Friends feed
+                        </Button>
+                      </div>
+                      {feedTab === "friends" && friendsFeedMeta ? (
+                        <div className="text-[11px] text-zinc-500">
+                          {friendsFeedMeta.counts.unread} unread · {friendsFeedMeta.counts.saved} saved
+                        </div>
+                      ) : null}
                     </div>
-                    {feedTab === "friends" && friendsFeedMeta ? (
-                      <div className="text-[11px] text-zinc-500">
-                        {friendsFeedMeta.sharableTotal} sharable from friends · showing {friendsFeedMeta.rankedCount}{" "}
-                        ranked
+                    {feedTab === "friends" ? (
+                      <div className="flex flex-wrap gap-2">
+                        {(
+                          [
+                            ["unread", "Unread"],
+                            ["read", "Read"],
+                            ["saved", "Saved"],
+                            ["discarded", "Discarded"],
+                          ] as const
+                        ).map(([bucket, label]) => (
+                          <Button
+                            key={bucket}
+                            variant={friendsFeedBucket === bucket ? "default" : "secondary"}
+                            size="sm"
+                            onClick={() => setFriendsFeedBucket(bucket)}
+                          >
+                            {label}
+                            {friendsFeedMeta ? ` (${friendsFeedMeta.counts[bucket]})` : ""}
+                          </Button>
+                        ))}
+                      </div>
+                    ) : null}
+                    {feedTab === "friends" && friendsFeedBucket === "discarded" ? (
+                      <div className="text-[11px] leading-relaxed text-zinc-500">
+                        Discarded posts are removed automatically after 30 days.
                       </div>
                     ) : null}
                   </div>
@@ -1521,7 +1791,13 @@ export function ProfilePage() {
                   <Card>
                     <CardContent className="py-12 text-center text-sm text-zinc-400">
                       {feedTab === "friends" && profile.meta.isSelf
-                        ? "No shared posts from friends yet. Friends must mark posts Share on their own pages."
+                        ? friendsFeedBucket === "unread"
+                          ? "No unread posts from friends. Shared posts appear here until you read, save, or discard them."
+                          : friendsFeedBucket === "read"
+                            ? "No read posts yet."
+                            : friendsFeedBucket === "saved"
+                              ? "No saved posts yet."
+                              : "No discarded posts. Discarded items are removed after 30 days."
                         : "No posts yet."}
                     </CardContent>
                   </Card>
@@ -1537,6 +1813,9 @@ export function ProfilePage() {
                         profile.meta.isSelf && feedTab === "my" && p.profileOwnerId === profile.user.id,
                       )}
                       showFeedSource={feedTab === "friends"}
+                      showFriendsFeedReview={feedTab === "friends" && friendsFeedBucket === "unread"}
+                      friendsFeedReviewBusy={friendsFeedReviewBusyId === p.id}
+                      onFriendsFeedReview={(action) => void reviewFriendsFeedPost(p.id, action)}
                       onChanged={() => void refreshActiveFeed()}
                     />
                   ))

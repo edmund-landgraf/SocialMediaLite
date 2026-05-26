@@ -21,6 +21,23 @@ export const commentTextSchema = z.string().trim().min(1).max(8000);
 
 export const postTextSchema = z.string().trim().min(1).max(32000).optional();
 
+export const TEXT_POST_FONT_SIZE_MIN = 12;
+export const TEXT_POST_FONT_SIZE_MAX = 32;
+export const TEXT_POST_FONT_SIZE_DEFAULT = 16;
+export const TEXT_POST_BG_DEFAULT = "#18181b";
+export const TEXT_POST_COLOR_DEFAULT = "#e4e4e7";
+
+export const textPostHexColorSchema = z
+  .string()
+  .trim()
+  .regex(/^#[0-9a-fA-F]{6}$/, "Color must be a 6-digit hex value");
+
+export const textPostFontSizeSchema = z
+  .number()
+  .int()
+  .min(TEXT_POST_FONT_SIZE_MIN)
+  .max(TEXT_POST_FONT_SIZE_MAX);
+
 export const videoUrlSchema = z.string().trim().url().max(2048).optional();
 
 export const usernameParamSchema = z.object({

@@ -19,6 +19,12 @@ enum PostType {
   VIDEO_LINK
 }
 
+enum FriendsFeedReviewStatus {
+  READ
+  SAVED
+  DISCARDED
+}
+
 model User {
   id               String        @id @default(uuid())
   fbUserId         String?
@@ -32,6 +38,7 @@ model User {
   comments         Comment[]
   requestedFriends Friendship[]  @relation("FriendshipRequester")
   receivedFriends  Friendship[]  @relation("FriendshipAddressee")
+  friendsFeedReviews FriendsFeedReview[]
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
 }
@@ -68,9 +75,14 @@ model Post {
   isPinned        Boolean  @default(false)
   /// When true, post may appear on friends' "Friends feed" tab (own wall only).
   sharedToFriendsFeed Boolean @default(false)
+  /// TEXT post styling (nullable for legacy rows and non-text types).
+  textBackgroundColor String?
+  textColor           String?
+  textFontSize        Int?
   author          User     @relation("PostAuthor", fields: [authorId], references: [id], onDelete: Cascade)
   profileOwner    User     @relation("PostProfileOwner", fields: [profileOwnerId], references: [id], onDelete: Cascade)
   comments        Comment[]
+  friendsFeedReviews FriendsFeedReview[]
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -93,4 +105,18 @@ model Comment {
 
   @@index([postId, createdAt])
   @@index([parentId])
+}
+
+model FriendsFeedReview {
+  id        String                  @id @default(uuid())
+  viewerId  String
+  postId    String
+  status    FriendsFeedReviewStatus
+  viewer    User                    @relation(fields: [viewerId], references: [id], onDelete: Cascade)
+  post      Post                    @relation(fields: [postId], references: [id], onDelete: Cascade)
+  createdAt DateTime                @default(now())
+  updatedAt DateTime                @updatedAt
+
+  @@unique([viewerId, postId])
+  @@index([viewerId, status, updatedAt(sort: Desc)])
 }

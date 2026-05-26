@@ -49,11 +49,18 @@ export type PostDTO = {
   photoUrl: string | null;
   /** Stored Open Graph thumbnail (fixed server-side crop); omitted on older rows. */
   linkPreviewUrl?: string | null;
+  textBackgroundColor?: string | null;
+  textColor?: string | null;
+  textFontSize?: number | null;
 };
+
+export type FriendsFeedBucket = "unread" | "read" | "saved" | "discarded";
 
 export type FriendsFeedMeta = {
   sharableTotal: number;
   rankedCount: number;
+  bucket: FriendsFeedBucket;
+  counts: Record<FriendsFeedBucket, number>;
 };
 
 export type CommentDTO = {

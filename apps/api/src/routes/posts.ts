@@ -2,7 +2,7 @@ import type { NextFunction, Request, Response } from "express";
 import { Router } from "express";
 import multer from "multer";
 import { z } from "zod";
-import { usernameParamSchema } from "@socialmedialite/shared";
+import { usernameParamSchema, textPostFontSizeSchema, textPostHexColorSchema } from "@socialmedialite/shared";
 import { prisma } from "../lib/prisma.js";
 import { requireAuth } from "../middleware/auth.js";
 import { assertCanAccessProfile } from "../services/access.js";
@@ -18,7 +18,18 @@ import {
   rankFriendsFeedPosts,
   type FriendsFeedCandidate,
 } from "../services/friendsFeedRank.js";
+import {
+  buildFriendsFeedBucketCounts,
+  postMatchesFriendsFeedBucket,
+  purgeExpiredDiscardedFriendsFeedReviews,
+  sortPostsForFriendsFeedBucket,
+  upsertFriendsFeedReview,
+  type FriendsFeedBucket,
+} from "../services/friendsFeedReview.js";
 import { isOfflineTestUserSession, respondOfflineWritesDisabled } from "../services/offlineTestUser.js";
+
+const friendsFeedBucketSchema = z.enum(["unread", "read", "saved", "discarded"]);
+const friendsFeedReviewActionSchema = z.enum(["read", "save", "discard"]);
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -29,6 +40,9 @@ const createJsonSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("TEXT"),
     text: z.string().trim().min(1).max(32000),
+    textBackgroundColor: textPostHexColorSchema.optional(),
+    textColor: textPostHexColorSchema.optional(),
+    textFontSize: textPostFontSizeSchema.optional(),
   }),
   z.object({
     type: z.literal("VIDEO_LINK"),
@@ -145,6 +159,15 @@ postsRouter.get("/users/:username/friends-feed", async (req, res) => {
     return;
   }
 
+  const bucketParsed = friendsFeedBucketSchema.safeParse(
+    typeof req.query.bucket === "string" ? req.query.bucket : "unread",
+  );
+  if (!bucketParsed.success) {
+    res.status(400).json({ error: bucketParsed.error.flatten() });
+    return;
+  }
+  const bucket: FriendsFeedBucket = bucketParsed.data;
+
   const viewerId = req.session.userId!;
 
   if (isOfflineTestUserSession(req) && params.data.username === OFFLINE_TEST_USERNAME) {
@@ -160,8 +183,18 @@ postsRouter.get("/users/:username/friends-feed", async (req, res) => {
       },
     }));
     res.json({
-      posts: gbPosts,
-      meta: { sharableTotal: gbPosts.length, rankedCount: gbPosts.length },
+      posts: bucket === "unread" ? gbPosts : [],
+      meta: {
+        sharableTotal: gbPosts.length,
+        rankedCount: bucket === "unread" ? gbPosts.length : 0,
+        bucket,
+        counts: {
+          unread: gbPosts.length,
+          read: 0,
+          saved: 0,
+          discarded: 0,
+        },
+      },
     });
     return;
   }
@@ -178,6 +211,8 @@ postsRouter.get("/users/:username/friends-feed", async (req, res) => {
     return;
   }
 
+  await purgeExpiredDiscardedFriendsFeedReviews(viewerId);
+
   const friendships = await prisma.friendship.findMany({
     where: {
       status: "ACCEPTED",
@@ -189,7 +224,15 @@ postsRouter.get("/users/:username/friends-feed", async (req, res) => {
     f.requesterId === viewerId ? f.addresseeId : f.requesterId,
   );
   if (friendIds.length === 0) {
-    res.json({ posts: [], meta: { sharableTotal: 0, rankedCount: 0 } });
+    res.json({
+      posts: [],
+      meta: {
+        sharableTotal: 0,
+        rankedCount: 0,
+        bucket,
+        counts: { unread: 0, read: 0, saved: 0, discarded: 0 },
+      },
+    });
     return;
   }
 
@@ -201,33 +244,106 @@ postsRouter.get("/users/:username/friends-feed", async (req, res) => {
     include: postInclude,
   });
 
-  const authorSharedCounts = new Map<string, number>();
-  for (const p of sharedPosts) {
-    authorSharedCounts.set(p.authorId, (authorSharedCounts.get(p.authorId) ?? 0) + 1);
-  }
+  const postIds = sharedPosts.map((p) => p.id);
+  const reviews = postIds.length
+    ? await prisma.friendsFeedReview.findMany({
+        where: { viewerId, postId: { in: postIds } },
+        select: { postId: true, status: true, updatedAt: true },
+      })
+    : [];
 
-  const candidates: FriendsFeedCandidate[] = sharedPosts.map((p) => ({
-    postId: p.id,
-    authorId: p.authorId,
-    profileOwnerId: p.profileOwnerId,
-    createdAt: p.createdAt,
-    commentCount: p._count.comments,
-    authorSharedPostCount: authorSharedCounts.get(p.authorId) ?? 1,
-  }));
+  const counts = buildFriendsFeedBucketCounts(postIds, reviews);
+  const reviewsByPostId = new Map(reviews.map((r) => [r.postId, r.status]));
+  const reviewUpdatedAt = new Map(reviews.map((r) => [r.postId, r.updatedAt]));
 
-  const appearanceHistory = req.session.friendsFeedAppearances ?? {};
-  const { ranked, nextAppearanceHistory, meta } = rankFriendsFeedPosts(candidates, appearanceHistory);
-  req.session.friendsFeedAppearances = nextAppearanceHistory;
-
-  const rankById = new Map(ranked.map((r, i) => [r.postId, i]));
-  const ordered = [...sharedPosts].sort(
-    (a, b) => (rankById.get(a.id) ?? 999) - (rankById.get(b.id) ?? 999),
+  const bucketPosts = sharedPosts.filter((p) =>
+    postMatchesFriendsFeedBucket(p.id, reviewsByPostId, bucket),
   );
+
+  let ordered = bucketPosts;
+  let metaExtras: { sharableTotal: number; rankedCount: number };
+
+  if (bucket === "unread") {
+    const authorSharedCounts = new Map<string, number>();
+    for (const p of bucketPosts) {
+      authorSharedCounts.set(p.authorId, (authorSharedCounts.get(p.authorId) ?? 0) + 1);
+    }
+
+    const candidates: FriendsFeedCandidate[] = bucketPosts.map((p) => ({
+      postId: p.id,
+      authorId: p.authorId,
+      profileOwnerId: p.profileOwnerId,
+      createdAt: p.createdAt,
+      commentCount: p._count.comments,
+      authorSharedPostCount: authorSharedCounts.get(p.authorId) ?? 1,
+    }));
+
+    const appearanceHistory = req.session.friendsFeedAppearances ?? {};
+    const { ranked, nextAppearanceHistory, meta } = rankFriendsFeedPosts(candidates, appearanceHistory);
+    req.session.friendsFeedAppearances = nextAppearanceHistory;
+
+    const rankById = new Map(ranked.map((r, i) => [r.postId, i]));
+    ordered = [...bucketPosts].sort(
+      (a, b) => (rankById.get(a.id) ?? 999) - (rankById.get(b.id) ?? 999),
+    );
+    metaExtras = { sharableTotal: meta.sharableTotal, rankedCount: ordered.length };
+  } else {
+    ordered = sortPostsForFriendsFeedBucket(bucketPosts, bucket, reviewUpdatedAt);
+    metaExtras = { sharableTotal: sharedPosts.length, rankedCount: ordered.length };
+  }
 
   res.json({
     posts: ordered.map((p) => serializePost(req, p)),
-    meta,
+    meta: {
+      ...metaExtras,
+      bucket,
+      counts,
+    },
   });
+});
+
+postsRouter.post("/posts/:postId/friends-feed-review", async (req, res) => {
+  if (isOfflineTestUserSession(req)) {
+    respondOfflineWritesDisabled(res);
+    return;
+  }
+
+  const body = z.object({ action: friendsFeedReviewActionSchema }).safeParse(req.body);
+  if (!body.success) {
+    res.status(400).json({ error: body.error.flatten() });
+    return;
+  }
+
+  const viewerId = req.session.userId!;
+  const postId = req.params.postId;
+
+  const post = await prisma.post.findUnique({
+    where: { id: postId },
+    select: { id: true, sharedToFriendsFeed: true, profileOwnerId: true },
+  });
+  if (!post || !post.sharedToFriendsFeed) {
+    res.status(404).json({ error: "Shared post not found" });
+    return;
+  }
+
+  const friendship = await prisma.friendship.findFirst({
+    where: {
+      status: "ACCEPTED",
+      OR: [
+        { requesterId: viewerId, addresseeId: post.profileOwnerId },
+        { requesterId: post.profileOwnerId, addresseeId: viewerId },
+      ],
+    },
+  });
+  if (!friendship) {
+    res.status(403).json({ error: "Post is not from a friend" });
+    return;
+  }
+
+  await purgeExpiredDiscardedFriendsFeedReviews(viewerId);
+  await upsertFriendsFeedReview(viewerId, postId, body.data.action);
+
+  res.json({ ok: true, action: body.data.action });
 });
 
 postsRouter.post("/posts/:postId/friends-feed-share", async (req, res) => {
@@ -347,6 +463,9 @@ postsRouter.post("/users/:username/posts", maybeMultipart, async (req, res) => {
         profileOwnerId: owner.id,
         type: "TEXT",
         text: body.text,
+        textBackgroundColor: body.textBackgroundColor ?? null,
+        textColor: body.textColor ?? null,
+        textFontSize: body.textFontSize ?? null,
       },
       include: {
         author: {
