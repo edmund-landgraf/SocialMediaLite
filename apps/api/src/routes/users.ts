@@ -1,5 +1,6 @@
 import { Router } from "express";
 import multer from "multer";
+import { z } from "zod";
 import { usernameParamSchema } from "@socialmedialite/shared";
 import { prisma } from "../lib/prisma.js";
 import { requireAuth } from "../middleware/auth.js";
@@ -200,7 +201,7 @@ usersRouter.patch("/me/banner", requireAuth, upload.single("banner"), async (req
 
   const updated = await prisma.user.update({
     where: { id: userId },
-    data: { bannerImageKey: key },
+    data: { bannerImageKey: key, bannerPositionX: 50, bannerPositionY: 50 },
   });
 
   const baseUrl = `${req.protocol}://${req.get("host")}`;
@@ -208,6 +209,44 @@ usersRouter.patch("/me/banner", requireAuth, upload.single("banner"), async (req
     user: {
       ...serializeUser(updated),
       bannerUrl: `${baseUrl}${req.storage.getPublicUrl(key)}`,
+    },
+  });
+});
+
+const bannerPositionSchema = z.object({
+  x: z.number().min(0).max(100),
+  y: z.number().min(0).max(100),
+});
+
+usersRouter.patch("/me/banner-position", requireAuth, async (req, res) => {
+  if (isOfflineTestUserSession(req)) {
+    respondOfflineWritesDisabled(res);
+    return;
+  }
+
+  const body = bannerPositionSchema.safeParse(req.body);
+  if (!body.success) {
+    res.status(400).json({ error: body.error.flatten() });
+    return;
+  }
+
+  const userId = req.session.userId!;
+  const me = await prisma.user.findUnique({ where: { id: userId } });
+  if (!me?.bannerImageKey) {
+    res.status(400).json({ error: "Upload a banner before adjusting position" });
+    return;
+  }
+
+  const updated = await prisma.user.update({
+    where: { id: userId },
+    data: { bannerPositionX: body.data.x, bannerPositionY: body.data.y },
+  });
+
+  const baseUrl = `${req.protocol}://${req.get("host")}`;
+  res.json({
+    user: {
+      ...serializeUser(updated),
+      bannerUrl: `${baseUrl}${req.storage.getPublicUrl(updated.bannerImageKey!)}`,
     },
   });
 });

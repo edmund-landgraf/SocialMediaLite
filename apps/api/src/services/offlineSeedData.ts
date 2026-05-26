@@ -28,6 +28,8 @@ function offlineUserRow(profile: {
     fbUserId: null,
     profilePicUrl: null,
     bannerImageKey: null,
+    bannerPositionX: 50,
+    bannerPositionY: 50,
     createdAt: epoch,
     updatedAt: epoch,
   };
@@ -66,6 +68,8 @@ export function offlineGlowbyteUserRow(): User {
     fbUserId: null,
     profilePicUrl: null,
     bannerImageKey: null,
+    bannerPositionX: 50,
+    bannerPositionY: 50,
     createdAt: epoch,
     updatedAt: epoch,
   };

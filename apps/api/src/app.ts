@@ -10,6 +10,7 @@ import { postsRouter } from "./routes/posts.js";
 import { commentsRouter } from "./routes/comments.js";
 import { linkPreviewRouter } from "./routes/linkPreview.js";
 import { blogRouter } from "./routes/blog.js";
+import { feedbackRouter } from "./routes/feedback.js";
 import {
   createStorageProviderFromEnv,
   getResolvedLocalStorageRoot,
@@ -68,8 +69,9 @@ export function createApp() {
   app.get("/health", (_req, res) => res.json({ ok: true }));
 
   app.use("/api/auth", authRouter);
-  /** Public blog — must register before routers with global requireAuth on /api. */
+  /** Public blog + feedback reads — register before routers with global requireAuth on /api. */
   app.use("/api", blogRouter);
+  app.use("/api", feedbackRouter);
   app.use("/api", usersRouter);
   app.use("/api/friends", friendsRouter);
   app.use("/api", postsRouter);

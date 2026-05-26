@@ -8,6 +8,10 @@ declare module "express-session" {
     offlineTestUser?: boolean;
     /** authorId → times shown on this viewer's Friends feed (stub ranking input). */
     friendsFeedAppearances?: Record<string, number>;
+    /** One-time math captcha for posting feedback. */
+    feedbackCaptchaAnswer?: number;
+    feedbackCaptchaExpiresAt?: number;
+    oauthReturnTo?: string;
   }
 }
 

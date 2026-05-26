@@ -7,7 +7,8 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "test": "vitest run"
+    "test": "vitest run",
+    "blog:sync": "tsx src/sync-blog.ts"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^6.9.0",

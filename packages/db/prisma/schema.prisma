@@ -33,6 +33,10 @@ model User {
   username         String        @unique
   profilePicUrl    String?
   bannerImageKey   String?
+  /// object-position X for banner crop (0–100, default center).
+  bannerPositionX  Float         @default(50)
+  /// object-position Y for banner crop (0–100, default center).
+  bannerPositionY  Float         @default(50)
   postsAuthored    Post[]        @relation("PostAuthor")
   postsOnWall      Post[]        @relation("PostProfileOwner")
   comments         Comment[]
@@ -40,6 +44,8 @@ model User {
   receivedFriends  Friendship[]  @relation("FriendshipAddressee")
   friendsFeedReviews FriendsFeedReview[]
   postReactions    PostReaction[]
+  feedbackItems    FeedbackItem[]
+  feedbackComments FeedbackComment[]
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
 }
@@ -152,4 +158,34 @@ model BlogEntry {
   updatedAt   DateTime @updatedAt
 
   @@index([committedAt(sort: Desc)])
+}
+
+model FeedbackItem {
+  id        String             @id @default(uuid())
+  authorId  String
+  title     String
+  body      String
+  author    User               @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  comments  FeedbackComment[]
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
+
+  @@index([createdAt(sort: Desc)])
+}
+
+model FeedbackComment {
+  id         String            @id @default(uuid())
+  feedbackId String
+  authorId   String
+  parentId   String?
+  text       String
+  feedback   FeedbackItem      @relation(fields: [feedbackId], references: [id], onDelete: Cascade)
+  author     User              @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  parent     FeedbackComment?  @relation("FeedbackCommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies    FeedbackComment[] @relation("FeedbackCommentReplies")
+  createdAt  DateTime          @default(now())
+  updatedAt  DateTime          @updatedAt
+
+  @@index([feedbackId, createdAt])
+  @@index([parentId])
 }

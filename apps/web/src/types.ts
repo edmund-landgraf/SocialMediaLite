@@ -6,6 +6,8 @@ export type PublicUser = {
   profilePicUrl: string | null;
   bannerImageKey: string | null;
   bannerUrl?: string | null;
+  bannerPositionX?: number;
+  bannerPositionY?: number;
   createdAt: string;
 };
 

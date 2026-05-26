@@ -10,6 +10,8 @@ type UserRec = {
   username: string;
   profilePicUrl: string | null;
   bannerImageKey: string | null;
+  bannerPositionX: number;
+  bannerPositionY: number;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -85,6 +87,25 @@ type BlogEntryRec = {
   updatedAt: Date;
 };
 
+type FeedbackItemRec = {
+  id: string;
+  authorId: string;
+  title: string;
+  body: string;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+type FeedbackCommentRec = {
+  id: string;
+  feedbackId: string;
+  authorId: string;
+  parentId: string | null;
+  text: string;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
 const db = {
   users: [] as UserRec[],
   friendships: [] as FriendshipRec[],
@@ -93,6 +114,8 @@ const db = {
   friendsFeedReviews: [] as FriendsFeedReviewRec[],
   postReactions: [] as PostReactionRec[],
   blogEntries: [] as BlogEntryRec[],
+  feedbackItems: [] as FeedbackItemRec[],
+  feedbackComments: [] as FeedbackCommentRec[],
 };
 
 const storage = {
@@ -141,6 +164,8 @@ const prisma = {
         username: args.create.username,
         profilePicUrl: args.create.profilePicUrl ?? null,
         bannerImageKey: null,
+        bannerPositionX: 50,
+        bannerPositionY: 50,
         createdAt: now(),
         updatedAt: now(),
       };
@@ -167,10 +192,15 @@ const prisma = {
       if (args?.take !== undefined) rows = rows.slice(0, args.take);
       return rows.map(cloneUser);
     },
-    async update(args: { where: { id: string }; data: Partial<Pick<UserRec, "bannerImageKey">> }) {
+    async update(args: {
+      where: { id: string };
+      data: Partial<Pick<UserRec, "bannerImageKey" | "bannerPositionX" | "bannerPositionY">>;
+    }) {
       const row = db.users.find((u) => u.id === args.where.id);
       if (!row) throw new Error("user not found");
       if (args.data.bannerImageKey !== undefined) row.bannerImageKey = args.data.bannerImageKey ?? null;
+      if (args.data.bannerPositionX !== undefined) row.bannerPositionX = args.data.bannerPositionX;
+      if (args.data.bannerPositionY !== undefined) row.bannerPositionY = args.data.bannerPositionY;
       row.updatedAt = now();
       return cloneUser(row);
     },
@@ -527,6 +557,86 @@ const prisma = {
       return { ...rec };
     },
   },
+  feedbackItem: {
+    async findMany(args: { orderBy?: { createdAt?: "desc" | "asc" } }) {
+      let rows = db.feedbackItems.slice();
+      if (args.orderBy?.createdAt === "desc") {
+        rows.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+      }
+      return rows.map((row) => ({
+        ...row,
+        author: findUserById(row.authorId)!,
+        _count: { comments: db.feedbackComments.filter((c) => c.feedbackId === row.id).length },
+      }));
+    },
+    async findUnique(args: { where: { id: string }; select?: { id?: boolean } }) {
+      const row = db.feedbackItems.find((f) => f.id === args.where.id);
+      if (!row) return null;
+      if (args.select?.id === true) return { id: row.id };
+      return { ...row };
+    },
+    async create(args: { data: Pick<FeedbackItemRec, "authorId" | "title" | "body"> }) {
+      const rec: FeedbackItemRec = {
+        id: id(),
+        authorId: args.data.authorId,
+        title: args.data.title,
+        body: args.data.body,
+        createdAt: now(),
+        updatedAt: now(),
+      };
+      db.feedbackItems.push(rec);
+      return {
+        ...rec,
+        author: findUserById(rec.authorId)!,
+        _count: { comments: 0 },
+      };
+    },
+    async update(args: {
+      where: { id: string };
+      data: Pick<FeedbackItemRec, "title" | "body">;
+    }) {
+      const row = db.feedbackItems.find((f) => f.id === args.where.id);
+      if (!row) throw new Error("feedback not found");
+      row.title = args.data.title;
+      row.body = args.data.body;
+      row.updatedAt = now();
+      return {
+        ...row,
+        author: findUserById(row.authorId)!,
+        _count: { comments: db.feedbackComments.filter((c) => c.feedbackId === row.id).length },
+      };
+    },
+  },
+  feedbackComment: {
+    async findMany(args: { where: { feedbackId: string }; orderBy?: { createdAt?: "asc" } }) {
+      let rows = db.feedbackComments.filter((c) => c.feedbackId === args.where.feedbackId);
+      if (args.orderBy?.createdAt === "asc") {
+        rows = rows.slice().sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+      }
+      return rows.map((row) => ({ ...row, author: findUserById(row.authorId)! }));
+    },
+    async findUnique(args: { where: { id: string }; select?: { feedbackId?: boolean } }) {
+      const row = db.feedbackComments.find((c) => c.id === args.where.id);
+      if (!row) return null;
+      if (args.select?.feedbackId) return { feedbackId: row.feedbackId };
+      return { ...row, author: findUserById(row.authorId)! };
+    },
+    async create(args: {
+      data: Pick<FeedbackCommentRec, "feedbackId" | "authorId" | "parentId" | "text">;
+    }) {
+      const rec: FeedbackCommentRec = {
+        id: id(),
+        feedbackId: args.data.feedbackId,
+        authorId: args.data.authorId,
+        parentId: args.data.parentId,
+        text: args.data.text,
+        createdAt: now(),
+        updatedAt: now(),
+      };
+      db.feedbackComments.push(rec);
+      return { ...rec, author: findUserById(rec.authorId)! };
+    },
+  },
   async $transaction<T>(fn: (tx: typeof prisma) => Promise<T>): Promise<T> {
     return fn(prisma);
   },
@@ -582,6 +692,8 @@ describe("api integration (phase 1)", () => {
     db.friendsFeedReviews = [];
     db.postReactions = [];
     db.blogEntries = [];
+    db.feedbackItems = [];
+    db.feedbackComments = [];
     storage.putObject.mockClear();
     storage.getPublicUrl.mockClear();
     storage.deleteObject.mockClear();
@@ -612,6 +724,14 @@ describe("api integration (phase 1)", () => {
     const res = await agent.post("/api/auth/stub-login").send({ kind: "test_user_2" });
     expect(res.status).toBe(200);
     expect(res.body.user.username).toBe("testuser2");
+  }
+
+  async function fetchFeedbackCaptchaAnswer(agent: request.SuperAgentTest) {
+    const captcha = await agent.get("/api/feedback/captcha");
+    expect(captcha.status).toBe(200);
+    const match = String(captcha.body.question).match(/^What is (\d+) \+ (\d+)\?$/);
+    expect(match).not.toBeNull();
+    return Number(match![1]) + Number(match![2]);
   }
 
   it("logs in stub test user 2 on own profile", async () => {
@@ -945,6 +1065,96 @@ describe("api integration (phase 1)", () => {
     expect(res.body.entries[0].title).toBe("Second release");
     expect(res.body.entries[1].title).toBe("First feature");
     expect(res.body.entries[1].body).toContain("Details here.");
+  });
+
+  it("lists feedback publicly without login", async () => {
+    db.feedbackItems.push({
+      id: id(),
+      authorId: db.users[0]?.id ?? id(),
+      title: "Public idea",
+      body: "Anyone can read this.",
+      createdAt: now(),
+      updatedAt: now(),
+    });
+    if (db.users.length === 0) {
+      const u: UserRec = {
+        id: db.feedbackItems[0].authorId,
+        fbUserId: null,
+        email: null,
+        displayName: "Alice",
+        username: "testuser",
+        profilePicUrl: null,
+        bannerImageKey: null,
+        bannerPositionX: 50,
+        bannerPositionY: 50,
+        createdAt: now(),
+        updatedAt: now(),
+      };
+      db.users.push(u);
+    }
+
+    const { app } = await createAgents();
+    const res = await request(app).get("/api/feedback");
+    expect(res.status).toBe(200);
+    expect(res.body.items).toHaveLength(1);
+    expect(res.body.items[0].title).toBe("Public idea");
+  });
+
+  it("rejects feedback posts with a wrong captcha", async () => {
+    const { alice } = await createAgents();
+    await loginTestUser(alice);
+    await fetchFeedbackCaptchaAnswer(alice);
+
+    const res = await alice.post("/api/feedback").send({
+      title: "Spam",
+      body: "Should not post",
+      captchaAnswer: 0,
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("captcha");
+  });
+
+  it("creates feedback, allows author edit, and supports threaded comments", async () => {
+    const { alice, bob } = await createAgents();
+    await loginTestUser(alice);
+    await loginTestUser2(bob);
+
+    const captchaAnswer = await fetchFeedbackCaptchaAnswer(alice);
+    const created = await alice.post("/api/feedback").send({
+      title: "Dark mode please",
+      body: "Would love a dark theme toggle.",
+      captchaAnswer,
+    });
+    expect(created.status).toBe(201);
+    expect(created.body.item.title).toBe("Dark mode please");
+    const feedbackId = created.body.item.id as string;
+
+    const forbidden = await bob.patch(`/api/feedback/${feedbackId}`).send({
+      title: "Hijacked",
+      body: "Nope",
+    });
+    expect(forbidden.status).toBe(403);
+
+    const edited = await alice.patch(`/api/feedback/${feedbackId}`).send({
+      title: "Dark mode please",
+      body: "Would love a dark theme toggle in settings.",
+    });
+    expect(edited.status).toBe(200);
+    expect(edited.body.item.body).toContain("settings");
+
+    const root = await bob.post(`/api/feedback/${feedbackId}/comments`).send({ text: "+1" });
+    expect(root.status).toBe(201);
+    const rootId = root.body.comment.id as string;
+
+    const reply = await alice
+      .post(`/api/feedback/${feedbackId}/comments`)
+      .send({ text: "On the roadmap", parentId: rootId });
+    expect(reply.status).toBe(201);
+    expect(reply.body.comment.parentId).toBe(rootId);
+
+    const list = await bob.get(`/api/feedback/${feedbackId}/comments`);
+    expect(list.status).toBe(200);
+    expect(list.body.comments).toHaveLength(2);
   });
 
   it("returns a friendly 400 for oversized image upload policy failures", async () => {

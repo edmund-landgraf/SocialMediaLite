@@ -8,6 +8,8 @@ export type PublicUser = Pick<
   | "email"
   | "profilePicUrl"
   | "bannerImageKey"
+  | "bannerPositionX"
+  | "bannerPositionY"
   | "createdAt"
 >;
 
@@ -19,6 +21,8 @@ export function serializeUser(u: User): PublicUser {
     email: u.email,
     profilePicUrl: u.profilePicUrl,
     bannerImageKey: u.bannerImageKey,
+    bannerPositionX: u.bannerPositionX,
+    bannerPositionY: u.bannerPositionY,
     createdAt: u.createdAt,
   };
 }

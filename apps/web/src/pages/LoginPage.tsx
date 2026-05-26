@@ -1,14 +1,15 @@
 import { Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { clearFeedbackIdentity } from "@/lib/feedbackIdentity";
+import { apiJson, apiUrl } from "@/lib/api";
 import {
   getStubTestUserProfile,
   STUB_TEST_USER_LOGIN_OPTIONS,
   type StubTestUserKind,
 } from "@socialmedialite/shared";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { apiJson, apiUrl } from "@/lib/api";
 
 type ActiveLoginKind = StubTestUserKind | "facebook" | null;
 
@@ -64,9 +65,14 @@ export function LoginPage() {
     window.location.href = apiUrl("/api/auth/facebook/start");
   }
 
+  function openFeedback() {
+    clearFeedbackIdentity();
+    nav("/feedback", { state: { requireIdentityPick: true } });
+  }
+
   return (
     <div className="flex min-h-full items-center justify-center p-6">
-      <div className="w-full max-w-md">
+      <div className="w-full max-w-md space-y-4">
         <Card>
           <CardHeader>
             <CardTitle className="text-2xl">SocialMediaLite</CardTitle>
@@ -74,10 +80,6 @@ export function LoginPage() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              <Button asChild variant="outline" className="w-full">
-                <Link to="/blog">Blog</Link>
-              </Button>
-
               <Button
                 type="button"
                 variant="default"
@@ -126,6 +128,21 @@ export function LoginPage() {
 
               {error ? <div className="rounded-md bg-red-950/40 px-3 py-2 text-sm text-red-200">{error}</div> : null}
             </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Explore</CardTitle>
+            <CardDescription>Public pages — no login required</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <Button asChild variant="outline" className="w-full">
+              <Link to="/blog">Blog</Link>
+            </Button>
+            <Button type="button" variant="outline" className="w-full" onClick={openFeedback}>
+              Feedback / Suggestions
+            </Button>
           </CardContent>
         </Card>
       </div>

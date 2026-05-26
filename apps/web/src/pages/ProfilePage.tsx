@@ -1,4 +1,4 @@
-import { Loader2, Minus, Plus, X } from "lucide-react";
+import { Loader2, X } from "lucide-react";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type CSSProperties } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
@@ -11,12 +11,14 @@ import {
 } from "@socialmedialite/shared";
 import { Button } from "@/components/ui/button";
 import { PostReactionPicker } from "@/components/PostReactionPicker";
+import { CommentThread } from "@/components/CommentThread";
+import { BannerPositionEditor, bannerObjectPositionStyle } from "@/components/BannerPositionEditor";
 import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { ApiError, apiFetch, apiJson } from "@/lib/api";
-import type { CommentDTO, CommentTreeNode, FriendsFeedBucket, FriendsFeedMeta, PostDTO, ProfileMeta, PublicUser } from "@/types";
+import type { FriendsFeedBucket, FriendsFeedMeta, PostDTO, ProfileMeta, PublicUser } from "@/types";
 
 type MeResp = {
   user: PublicUser & { bannerUrl?: string | null };
@@ -251,277 +253,6 @@ function AvatarFrame(props: { label: string; sizeClass?: string; ring?: boolean;
           FB
         </div>
       )}
-    </div>
-  );
-}
-
-const COMMENT_INDENT_PX = 16;
-const COMMENT_MAX_VISUAL_DEPTH = 4;
-/** Replies under comments at this depth (0-based) start collapsed. */
-const COMMENT_AUTO_COLLAPSE_DEPTH = 3;
-
-function countDescendants(node: CommentTreeNode): number {
-  let total = node.replies.length;
-  for (const reply of node.replies) {
-    total += countDescendants(reply);
-  }
-  return total;
-}
-
-function visualIndentPx(depth: number): number {
-  if (depth <= 0) return 0;
-  return Math.min(depth, COMMENT_MAX_VISUAL_DEPTH) * COMMENT_INDENT_PX;
-}
-
-function buildCommentTree(items: CommentDTO[]): CommentTreeNode[] {
-  const byId = new Map<string, CommentTreeNode>();
-  const roots: CommentTreeNode[] = [];
-  for (const item of items) {
-    byId.set(item.id, { ...item, replies: [] });
-  }
-  for (const item of items) {
-    const node = byId.get(item.id)!;
-    if (item.parentId && byId.has(item.parentId)) {
-      byId.get(item.parentId)!.replies.push(node);
-    } else {
-      roots.push(node);
-    }
-  }
-  return roots;
-}
-
-function CommentComposer(props: {
-  placeholder: string;
-  onSubmit: (text: string) => Promise<void>;
-  onCancel?: () => void;
-  compact?: boolean;
-}) {
-  const [draft, setDraft] = useState("");
-  const [busy, setBusy] = useState(false);
-
-  async function submit() {
-    if (!draft.trim() || busy) return;
-    setBusy(true);
-    try {
-      await props.onSubmit(draft.trim());
-      setDraft("");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div className={props.compact ? "mt-2 space-y-2" : "mt-3 flex gap-2"}>
-      <div className={props.compact ? "flex gap-2" : "flex min-w-0 flex-1 gap-2"}>
-        <Input
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          placeholder={props.placeholder}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              void submit();
-            }
-          }}
-        />
-        <Button onClick={() => void submit()} disabled={busy || !draft.trim()}>
-          Post
-        </Button>
-        {props.onCancel ? (
-          <Button variant="ghost" onClick={props.onCancel}>
-            Cancel
-          </Button>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
-function CommentNode(props: {
-  comment: CommentTreeNode;
-  depth: number;
-  onReply: (parentId: string, text: string) => Promise<void>;
-}) {
-  const hasReplies = props.comment.replies.length > 0;
-  const descendantCount = countDescendants(props.comment);
-  const [collapsed, setCollapsed] = useState(
-    () => props.depth >= COMMENT_AUTO_COLLAPSE_DEPTH && hasReplies,
-  );
-  const [replyOpen, setReplyOpen] = useState(false);
-  const isRoot = props.depth === 0;
-
-  async function submitReply(text: string) {
-    await props.onReply(props.comment.id, text);
-    setReplyOpen(false);
-    setCollapsed(false);
-  }
-
-  const body = (
-    <>
-      <div className="flex items-start gap-2">
-        {hasReplies ? (
-          <button
-            type="button"
-            className="mt-1 flex size-5 shrink-0 items-center justify-center rounded border border-zinc-700 bg-zinc-900 text-zinc-400 hover:border-zinc-500 hover:text-zinc-200"
-            aria-expanded={!collapsed}
-            aria-label={collapsed ? `Expand ${descendantCount} replies` : "Collapse replies"}
-            onClick={() => setCollapsed((v) => !v)}
-          >
-            {collapsed ? <Plus className="size-3" /> : <Minus className="size-3" />}
-          </button>
-        ) : (
-          <span className="mt-1 size-5 shrink-0" aria-hidden />
-        )}
-        <AvatarFrame
-          label={props.comment.author.displayName}
-          imageUrl={props.comment.author.profilePicUrl}
-          sizeClass={isRoot ? "size-9" : "size-7"}
-          ring={false}
-        />
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-            <span className="truncate text-xs font-semibold text-zinc-100">{props.comment.author.displayName}</span>
-            <span className="text-[11px] text-zinc-500">{formatTime(props.comment.createdAt)}</span>
-          </div>
-          <div className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-zinc-200">{props.comment.text}</div>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="mt-1 h-7 px-2 text-xs text-zinc-400 hover:text-zinc-200"
-            onClick={() => setReplyOpen((v) => !v)}
-          >
-            Reply
-          </Button>
-          {replyOpen ? (
-            <CommentComposer
-              compact
-              placeholder="Write a reply…"
-              onCancel={() => setReplyOpen(false)}
-              onSubmit={submitReply}
-            />
-          ) : null}
-        </div>
-      </div>
-
-      {collapsed && hasReplies ? (
-        <button
-          type="button"
-          className="mt-2 ml-7 text-xs font-medium text-blue-400 hover:text-blue-300"
-          onClick={() => setCollapsed(false)}
-        >
-          {descendantCount} {descendantCount === 1 ? "reply" : "replies"}
-        </button>
-      ) : null}
-    </>
-  );
-
-  return (
-    <div className="mt-3 first:mt-0" style={{ paddingLeft: visualIndentPx(props.depth) }}>
-      {isRoot ? (
-        <div className="rounded-lg border border-zinc-900 bg-zinc-950/70 p-3">{body}</div>
-      ) : (
-        <div className="py-1">{body}</div>
-      )}
-
-      {!collapsed && hasReplies ? (
-        <div className="relative mt-1 flex">
-          <button
-            type="button"
-            className="absolute bottom-2 left-0 top-0 w-1 shrink-0 rounded-full bg-zinc-800 hover:bg-zinc-600"
-            aria-label="Collapse thread"
-            onClick={() => setCollapsed(true)}
-          />
-          <div className="min-w-0 flex-1 pl-3">
-            {props.comment.replies.map((reply) => (
-              <CommentNode key={reply.id} comment={reply} depth={props.depth + 1} onReply={props.onReply} />
-            ))}
-          </div>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function CommentThread(props: {
-  postId: string;
-  open: boolean;
-  onClose: () => void;
-  /** Called after a comment is successfully created (typically refresh timeline for counts). */
-  onChanged?: () => void;
-}) {
-  const [loading, setLoading] = useState(false);
-  const [items, setItems] = useState<CommentDTO[]>([]);
-  const [error, setError] = useState<string | null>(null);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await apiJson<{ comments: CommentDTO[] }>(`/api/posts/${props.postId}/comments`);
-      setItems(data.comments);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed loading comments");
-    } finally {
-      setLoading(false);
-    }
-  }, [props.postId]);
-
-  useEffect(() => {
-    if (!props.open) return;
-    void load();
-  }, [props.open, load]);
-
-  async function add(text: string, parentId?: string) {
-    setError(null);
-    try {
-      const created = await apiJson<{ comment: CommentDTO }>(`/api/posts/${props.postId}/comments`, {
-        method: "POST",
-        body: JSON.stringify(parentId ? { text, parentId } : { text }),
-      });
-      setItems((xs) => [...xs, created.comment]);
-      props.onChanged?.();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed commenting");
-      throw e;
-    }
-  }
-
-  const tree = buildCommentTree(items);
-
-  if (!props.open) return null;
-
-  return (
-    <div className="border-t border-zinc-800 bg-zinc-950/40 px-4 py-3">
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <div className="text-sm font-semibold text-zinc-200">Comments</div>
-        <Button variant="ghost" size="sm" onClick={() => props.onClose()}>
-          Hide
-        </Button>
-      </div>
-
-      {loading ? (
-        <div className="flex items-center gap-2 text-xs text-zinc-400">
-          <Loader2 className="animate-spin size-4" />
-          Loading…
-        </div>
-      ) : null}
-
-      <div>
-        {tree.map((comment) => (
-          <CommentNode
-            key={comment.id}
-            comment={comment}
-            depth={0}
-            onReply={(parentId, text) => add(text, parentId)}
-          />
-        ))}
-      </div>
-
-      <CommentComposer placeholder="Write a comment…" onSubmit={(text) => add(text)} />
-
-      {error ? (
-        <div className="mt-2 rounded-md bg-red-950/40 px-3 py-2 text-xs text-red-100">{error}</div>
-      ) : null}
     </div>
   );
 }
@@ -857,7 +588,7 @@ function PostCard(props: {
 
         {!props.showFriendsFeedReview ? (
           <CommentThread
-            postId={props.post.id}
+            commentsUrl={`/api/posts/${props.post.id}/comments`}
             open={commentsOpen}
             onClose={() => setCommentsOpen(false)}
             onChanged={() => props.onChanged()}
@@ -883,6 +614,7 @@ export function ProfilePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [bannerPreviewOpen, setBannerPreviewOpen] = useState(false);
+  const [bannerEditOpen, setBannerEditOpen] = useState(false);
 
   const name = useMemo(() => (username ?? "").trim().toLowerCase(), [username]);
 
@@ -1067,6 +799,7 @@ export function ProfilePage() {
 
   useEffect(() => {
     setBannerPreviewOpen(false);
+    setBannerEditOpen(false);
   }, [name, profile?.user.bannerUrl]);
 
   useEffect(() => {
@@ -1222,18 +955,55 @@ export function ProfilePage() {
                 ...prev.user,
                 bannerUrl: result.user.bannerUrl,
                 bannerImageKey: result.user.bannerImageKey ?? prev.user.bannerImageKey,
+                bannerPositionX: result.user.bannerPositionX ?? 50,
+                bannerPositionY: result.user.bannerPositionY ?? 50,
               },
             }
           : prev,
       );
       setMe((prev) =>
         prev
-          ? { ...prev, bannerUrl: result.user.bannerUrl, bannerImageKey: result.user.bannerImageKey ?? prev.bannerImageKey }
+          ? {
+              ...prev,
+              bannerUrl: result.user.bannerUrl,
+              bannerImageKey: result.user.bannerImageKey ?? prev.bannerImageKey,
+              bannerPositionX: result.user.bannerPositionX ?? 50,
+              bannerPositionY: result.user.bannerPositionY ?? 50,
+            }
           : prev,
       );
     } catch (e) {
       alert(e instanceof Error ? e.message : "Banner upload failed");
     }
+  }
+
+  async function saveBannerPosition(x: number, y: number) {
+    const result = await apiJson<{ user: PublicUser & { bannerUrl?: string | null } }>("/api/me/banner-position", {
+      method: "PATCH",
+      body: JSON.stringify({ x, y }),
+    });
+    setProfile((prev) =>
+      prev
+        ? {
+            ...prev,
+            user: {
+              ...prev.user,
+              bannerPositionX: result.user.bannerPositionX ?? x,
+              bannerPositionY: result.user.bannerPositionY ?? y,
+            },
+          }
+        : prev,
+    );
+    setMe((prev) =>
+      prev
+        ? {
+            ...prev,
+            bannerPositionX: result.user.bannerPositionX ?? x,
+            bannerPositionY: result.user.bannerPositionY ?? y,
+          }
+        : prev,
+    );
+    setBannerEditOpen(false);
   }
 
   async function requestFriendships() {
@@ -1372,12 +1142,22 @@ export function ProfilePage() {
               onClick={() => setBannerPreviewOpen(true)}
               aria-label="View full banner image"
             >
-              <img className="h-full w-full object-cover opacity-95" alt="" src={profile.user.bannerUrl} />
+              <img
+                className="h-full w-full object-cover opacity-95"
+                alt=""
+                src={profile.user.bannerUrl}
+                style={bannerObjectPositionStyle(profile.user.bannerPositionX, profile.user.bannerPositionY)}
+              />
             </button>
           ) : null}
 
           {profile.meta.isSelf ? (
-            <div className="absolute bottom-4 right-4 z-10">
+            <div className="absolute bottom-4 right-4 z-10 flex flex-wrap items-center justify-end gap-2">
+              {profile.user.bannerUrl ? (
+                <Button type="button" variant="secondary" size="sm" onClick={() => setBannerEditOpen(true)}>
+                  Edit
+                </Button>
+              ) : null}
               <Button asChild variant="secondary" size="sm">
                 <label className="cursor-pointer px-4">
                   Banner photo
@@ -1889,6 +1669,16 @@ export function ProfilePage() {
           </>
         )}
       </main>
+
+      {bannerEditOpen && profile.meta.isSelf && profile.user.bannerUrl ? (
+        <BannerPositionEditor
+          bannerUrl={profile.user.bannerUrl}
+          initialX={profile.user.bannerPositionX ?? 50}
+          initialY={profile.user.bannerPositionY ?? 50}
+          onSave={saveBannerPosition}
+          onCancel={() => setBannerEditOpen(false)}
+        />
+      ) : null}
 
       {bannerPreviewOpen && profile.user.bannerUrl ? (
         <div

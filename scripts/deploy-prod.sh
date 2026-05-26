@@ -37,6 +37,9 @@ npm run build
 echo "==> database migrations"
 npm run db:deploy
 
+echo "==> sync blog from git"
+npm run blog:sync || echo "    (blog sync skipped or failed — continuing deploy)"
+
 echo "==> publish web dist -> $WEB_ROOT"
 sudo mkdir -p "$WEB_ROOT"
 sudo rsync -a --delete apps/web/dist/ "$WEB_ROOT/"

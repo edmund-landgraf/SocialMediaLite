@@ -35,6 +35,13 @@ function getFacebookConfig(): FacebookConfig | null {
   return { appId, appSecret, redirectUri, graphVersion };
 }
 
+function safeOAuthReturnTo(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed.startsWith("/") || trimmed.startsWith("//")) return null;
+  return trimmed;
+}
+
 function toUsernameBase(name: string): string {
   const cleaned = name
     .toLowerCase()
@@ -99,7 +106,13 @@ authRouter.get("/facebook/start", (req, res) => {
     return;
   }
   const state = crypto.randomUUID();
-  (req.session as typeof req.session & { oauthState?: string }).oauthState = state;
+  req.session.oauthState = state;
+  const returnTo = safeOAuthReturnTo(req.query.returnTo);
+  if (returnTo) {
+    req.session.oauthReturnTo = returnTo;
+  } else {
+    delete req.session.oauthReturnTo;
+  }
 
   const dialogUrl = new URL("https://www.facebook.com/dialog/oauth");
   dialogUrl.searchParams.set("client_id", config.appId);
@@ -117,7 +130,7 @@ authRouter.get("/facebook/callback", async (req, res) => {
     res.redirect(`${webOrigin}/login?error=fb_not_configured`);
     return;
   }
-  const oauthState = (req.session as typeof req.session & { oauthState?: string }).oauthState;
+  const oauthState = req.session.oauthState;
   const returnedState = typeof req.query.state === "string" ? req.query.state : "";
   const code = typeof req.query.code === "string" ? req.query.code : "";
   if (!oauthState || oauthState !== returnedState || !code) {
@@ -125,7 +138,9 @@ authRouter.get("/facebook/callback", async (req, res) => {
     return;
   }
 
-  delete (req.session as typeof req.session & { oauthState?: string }).oauthState;
+  const returnTo = safeOAuthReturnTo(req.session.oauthReturnTo);
+  delete req.session.oauthState;
+  delete req.session.oauthReturnTo;
 
   try {
     const accessToken = await exchangeFacebookCodeForToken(config, code);
@@ -163,6 +178,10 @@ authRouter.get("/facebook/callback", async (req, res) => {
     await ensureAiFriendshipForUser(user.id);
     delete req.session.offlineTestUser;
     req.session.userId = user.id;
+    if (returnTo) {
+      res.redirect(`${webOrigin}${returnTo}`);
+      return;
+    }
     res.redirect(`${webOrigin}/${encodeURIComponent(user.username)}`);
   } catch (err) {
     console.error("facebook callback failed:", err);

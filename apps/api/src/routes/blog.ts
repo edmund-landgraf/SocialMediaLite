@@ -1,7 +1,7 @@
 import { Router } from "express";
 import type { BlogEntry } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
-import { ensureBlogEntriesFromGitHub, githubCommitUrl, resolveGitHubRepo } from "../services/blogSync.js";
+import { ensureBlogEntriesFromGitHub, githubCommitUrl, resolveGitHubRepo, syncBlogFromGit } from "../services/blogSync.js";
 
 export const blogRouter = Router();
 
@@ -40,9 +40,9 @@ blogRouter.get("/blog", async (_req, res, next) => {
 
 blogRouter.post("/blog/sync", async (_req, res, next) => {
   try {
-    await ensureBlogEntriesFromGitHub();
+    const sync = await syncBlogFromGit({ throwOnError: true });
     const entries = await listBlogEntries();
-    res.json({ entries, count: entries.length });
+    res.json({ entries, count: entries.length, sync });
   } catch (e) {
     next(e instanceof Error ? e : new Error(String(e)));
   }

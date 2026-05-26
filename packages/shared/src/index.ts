@@ -73,3 +73,10 @@ export {
   type PostReactionDef,
   type PostReactionKind,
 } from "./postReactions.js";
+
+export {
+  feedbackTitleSchema,
+  feedbackBodySchema,
+  feedbackCommentTextSchema,
+  feedbackCaptchaAnswerSchema,
+} from "./feedback.js";
