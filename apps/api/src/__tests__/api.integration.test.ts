@@ -45,6 +45,7 @@ type CommentRec = {
   id: string;
   postId: string;
   authorId: string;
+  parentId: string | null;
   text: string;
   createdAt: Date;
   updatedAt: Date;
@@ -326,14 +327,25 @@ const prisma = {
         .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
         .map((c) => ({ ...c, author: findUserById(c.authorId) }));
     },
-    async create(args: { data: { postId: string; authorId: string; text: string } }) {
+    async create(args: {
+      data: { postId: string; authorId: string; text: string; parentId?: string | null };
+    }) {
       const rec: CommentRec = {
         id: id(),
         createdAt: now(),
         updatedAt: now(),
-        ...args.data,
+        parentId: args.data.parentId ?? null,
+        postId: args.data.postId,
+        authorId: args.data.authorId,
+        text: args.data.text,
       };
       db.comments.push(rec);
+      return { ...rec, author: findUserById(rec.authorId) };
+    },
+    async findUnique(args: { where: { id: string }; select?: { postId?: boolean } }) {
+      const rec = db.comments.find((c) => c.id === args.where.id);
+      if (!rec) return null;
+      if (args.select?.postId) return { postId: rec.postId };
       return { ...rec, author: findUserById(rec.authorId) };
     },
   },
@@ -539,6 +551,41 @@ describe("api integration (phase 1)", () => {
 
     const empty = await alice.get("/api/users/testuser/friends-feed");
     expect(empty.body.posts).toHaveLength(0);
+  });
+
+  it("supports nested comment replies at any depth", async () => {
+    const { alice, bob } = await createAgents();
+    await loginTestUser(alice);
+    await loginTestUser(bob);
+
+    const post = await alice.post("/api/users/testuser/posts").send({ type: "TEXT", text: "thread root" });
+    expect(post.status).toBe(201);
+    const postId = post.body.post.id as string;
+
+    const root = await bob.post(`/api/posts/${postId}/comments`).send({ text: "top level" });
+    expect(root.status).toBe(201);
+    expect(root.body.comment.parentId).toBeNull();
+    const rootId = root.body.comment.id as string;
+
+    const reply = await alice.post(`/api/posts/${postId}/comments`).send({ text: "first reply", parentId: rootId });
+    expect(reply.status).toBe(201);
+    expect(reply.body.comment.parentId).toBe(rootId);
+    const replyId = reply.body.comment.id as string;
+
+    const nested = await bob
+      .post(`/api/posts/${postId}/comments`)
+      .send({ text: "reply to reply", parentId: replyId });
+    expect(nested.status).toBe(201);
+    expect(nested.body.comment.parentId).toBe(replyId);
+
+    const list = await alice.get(`/api/posts/${postId}/comments`);
+    expect(list.status).toBe(200);
+    expect(list.body.comments).toHaveLength(3);
+    expect(list.body.comments.map((c: { parentId: string | null }) => c.parentId)).toEqual([
+      null,
+      rootId,
+      replyId,
+    ]);
   });
 
   it("returns a friendly 400 for oversized image upload policy failures", async () => {

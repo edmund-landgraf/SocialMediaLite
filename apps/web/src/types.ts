@@ -60,7 +60,10 @@ export type CommentDTO = {
   id: string;
   postId: string;
   authorId: string;
+  parentId: string | null;
   text: string;
   createdAt: string;
   author: PostAuthor;
 };
+
+export type CommentTreeNode = CommentDTO & { replies: CommentTreeNode[] };
