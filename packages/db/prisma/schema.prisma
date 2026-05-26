@@ -39,6 +39,7 @@ model User {
   requestedFriends Friendship[]  @relation("FriendshipRequester")
   receivedFriends  Friendship[]  @relation("FriendshipAddressee")
   friendsFeedReviews FriendsFeedReview[]
+  postReactions    PostReaction[]
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
 }
@@ -83,10 +84,28 @@ model Post {
   profileOwner    User     @relation("PostProfileOwner", fields: [profileOwnerId], references: [id], onDelete: Cascade)
   comments        Comment[]
   friendsFeedReviews FriendsFeedReview[]
+  reactions       PostReaction[]
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
   @@index([profileOwnerId, createdAt(sort: Desc)])
+}
+
+model PostReaction {
+  id        String   @id @default(uuid())
+  postId    String
+  userId    String
+  /// Reaction id from shared POST_REACTIONS catalog (e.g. like, agree).
+  kind      String
+  /// Optional free-text when kind collects details (e.g. disagree).
+  details   String?
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([postId, userId])
+  @@index([postId, kind])
 }
 
 model Comment {
@@ -119,4 +138,18 @@ model FriendsFeedReview {
 
   @@unique([viewerId, postId])
   @@index([viewerId, status, updatedAt(sort: Desc)])
+}
+
+model BlogEntry {
+  id          String   @id @default(uuid())
+  slug        String   @unique
+  title       String
+  body        String
+  committedAt DateTime
+  sha         String   @unique
+  authorName  String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([committedAt(sort: Desc)])
 }

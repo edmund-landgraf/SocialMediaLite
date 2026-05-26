@@ -7,8 +7,10 @@ import {
   TEXT_POST_FONT_SIZE_DEFAULT,
   TEXT_POST_FONT_SIZE_MAX,
   TEXT_POST_FONT_SIZE_MIN,
+  type PostReactionKind,
 } from "@socialmedialite/shared";
 import { Button } from "@/components/ui/button";
+import { PostReactionPicker } from "@/components/PostReactionPicker";
 import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -530,6 +532,7 @@ function PostCard(props: {
   canModerateDeletes: boolean;
   canEditCaption: boolean;
   canShareToFriendsFeed: boolean;
+  canReact: boolean;
   showFeedSource: boolean;
   showFriendsFeedReview?: boolean;
   friendsFeedReviewBusy?: boolean;
@@ -626,6 +629,14 @@ function PostCard(props: {
     } finally {
       setCaptionBusy(false);
     }
+  }
+
+  async function pickReaction(kind: PostReactionKind, options?: { details?: string }) {
+    await apiJson(`/api/posts/${props.post.id}/reaction`, {
+      method: "POST",
+      body: JSON.stringify({ kind, ...(options?.details ? { details: options.details } : {}) }),
+    });
+    props.onChanged();
   }
 
   return (
@@ -833,9 +844,13 @@ function PostCard(props: {
                   </Button>
                 )
               ) : null}
-              <Button variant="ghost" size="sm" disabled title="likes come later">
-                Like
-              </Button>
+              {props.canReact ? (
+                <PostReactionPicker
+                  viewerReaction={(props.post.viewerReaction as PostReactionKind | null) ?? null}
+                  reactionTotal={props.post.reactionTotal ?? 0}
+                  onPick={pickReaction}
+                />
+              ) : null}
             </>
           )}
         </div>
@@ -1835,6 +1850,7 @@ export function ProfilePage() {
                       canShareToFriendsFeed={Boolean(
                         profile.meta.isSelf && feedTab === "my" && p.profileOwnerId === profile.user.id,
                       )}
+                      canReact={profile.meta.canViewContent}
                       showFeedSource={feedTab === "friends"}
                       showFriendsFeedReview={feedTab === "friends" && friendsFeedBucket === "unread"}
                       friendsFeedReviewBusy={friendsFeedReviewBusyId === p.id}

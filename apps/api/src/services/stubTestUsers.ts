@@ -1,5 +1,6 @@
 import {
   getStubTestUserProfile,
+  STUB_TEST_USER_KINDS,
   type StubTestUserKind,
 } from "@socialmedialite/shared";
 import { prisma } from "../lib/prisma.js";
@@ -27,4 +28,11 @@ export async function loginStubTestUser(kind: StubTestUserKind) {
 
   await ensureAiFriendshipForUser(user.id);
   return user;
+}
+
+/** Ensure both Phase 1 stub test users exist in Postgres (browse list, dev login). */
+export async function ensureStubTestUsersSeed() {
+  for (const kind of STUB_TEST_USER_KINDS) {
+    await loginStubTestUser(kind);
+  }
 }

@@ -1,11 +1,12 @@
 import { Router } from "express";
 import { z } from "zod";
-import { usernameSchema } from "@socialmedialite/shared";
+import { STUB_TEST_USER_KINDS, usernameSchema } from "@socialmedialite/shared";
 import { prisma } from "../lib/prisma.js";
 import { requireAuth } from "../middleware/auth.js";
 import {
   OFFLINE_SEED_BROWSE_NOTE,
   offlineGlowbyteUserRow,
+  offlineStubTestUserRow,
 } from "../services/offlineSeedData.js";
 import { isOfflineTestUserSession, respondOfflineWritesDisabled } from "../services/offlineTestUser.js";
 import { serializeUser } from "../services/serializers.js";
@@ -29,9 +30,17 @@ function friendshipStatusFor(viewerId: string, otherId: string, row: { requester
 
 friendsRouter.get("/browse", async (req, res) => {
   if (isOfflineTestUserSession(req)) {
+    const viewerId = req.session.userId!;
     const gb = offlineGlowbyteUserRow();
+    const others = [
+      gb,
+      ...STUB_TEST_USER_KINDS.map((kind) => offlineStubTestUserRow(kind)),
+    ].filter((u) => u.id !== viewerId);
     res.json({
-      users: [{ user: serializeUser(gb), friendshipStatus: "accepted" as const }],
+      users: others.map((u) => ({
+        user: serializeUser(u),
+        friendshipStatus: (u.id === gb.id ? "accepted" : "none") as FriendshipStatusDTO,
+      })),
       note: OFFLINE_SEED_BROWSE_NOTE,
     });
     return;

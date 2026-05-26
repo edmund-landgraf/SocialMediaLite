@@ -1,6 +1,6 @@
 import { Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   getStubTestUserProfile,
   STUB_TEST_USER_LOGIN_OPTIONS,
@@ -74,6 +74,10 @@ export function LoginPage() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
+              <Button asChild variant="outline" className="w-full">
+                <Link to="/blog">Blog</Link>
+              </Button>
+
               <Button
                 type="button"
                 variant="default"

@@ -28,6 +28,11 @@ export type PostAuthor = {
   profilePicUrl: string | null;
 };
 
+export type PostReactionCount = {
+  kind: string;
+  count: number;
+};
+
 export type PostDTO = {
   id: string;
   authorId: string;
@@ -52,6 +57,9 @@ export type PostDTO = {
   textBackgroundColor?: string | null;
   textColor?: string | null;
   textFontSize?: number | null;
+  reactions?: PostReactionCount[];
+  viewerReaction?: string | null;
+  reactionTotal?: number;
 };
 
 export type FriendsFeedBucket = "unread" | "read" | "saved" | "discarded";
@@ -74,3 +82,16 @@ export type CommentDTO = {
 };
 
 export type CommentTreeNode = CommentDTO & { replies: CommentTreeNode[] };
+
+export type BlogEntryDTO = {
+  id: string;
+  slug: string;
+  title: string;
+  body: string;
+  committedAt: string;
+  sha: string;
+  commitUrl?: string | null;
+  authorName: string;
+  createdAt: string;
+  updatedAt: string;
+};

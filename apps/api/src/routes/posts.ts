@@ -2,13 +2,14 @@ import type { NextFunction, Request, Response } from "express";
 import { Router } from "express";
 import multer from "multer";
 import { z } from "zod";
-import { usernameParamSchema, textPostFontSizeSchema, textPostHexColorSchema } from "@socialmedialite/shared";
+import { usernameParamSchema, textPostFontSizeSchema, textPostHexColorSchema, postReactionKindSchema, postReactionDetailsSchema, reactionCollectsDetails } from "@socialmedialite/shared";
 import { prisma } from "../lib/prisma.js";
 import { requireAuth } from "../middleware/auth.js";
 import { assertCanAccessProfile } from "../services/access.js";
 import { AI_FRIEND } from "../services/aiFriend.js";
 import { buildStoredLinkPreview } from "../services/linkPreview.js";
 import { processImageToMaxSize } from "../services/image.js";
+import { loadPostReactionSummaries, upsertPostReaction, type PostReactionSummary } from "../services/postReactions.js";
 import {
   offlineGlowbyteIntroPhotoDataUrl,
   offlineGlowbyteWallPostRows,
@@ -106,6 +107,30 @@ const postInclude = {
   _count: { select: { comments: true } },
 } as const;
 
+const EMPTY_REACTIONS: PostReactionSummary = {
+  reactions: [],
+  viewerReaction: null,
+  reactionTotal: 0,
+};
+
+async function serializePostsWithReactions<
+  T extends {
+    id: string;
+    photoKey: string | null;
+    linkPreviewImageKey?: string | null;
+    sharedToFriendsFeed?: boolean;
+  },
+>(req: Request, posts: T[], viewerId: string) {
+  const summaries = await loadPostReactionSummaries(
+    posts.map((p) => p.id),
+    viewerId,
+  );
+  return posts.map((p) => ({
+    ...serializePost(req, p),
+    ...(summaries.get(p.id) ?? EMPTY_REACTIONS),
+  }));
+}
+
 postsRouter.get("/users/:username/posts", async (req, res) => {
   const params = usernameParamSchema.safeParse(req.params);
   if (!params.success) {
@@ -124,6 +149,7 @@ postsRouter.get("/users/:username/posts", async (req, res) => {
       posts: offlineGlowbyteWallPostRows().map((p) => ({
         ...serializePost(req, p),
         photoUrl,
+        ...EMPTY_REACTIONS,
       })),
     });
     return;
@@ -151,7 +177,7 @@ postsRouter.get("/users/:username/posts", async (req, res) => {
   });
 
   res.json({
-    posts: posts.map((p) => serializePost(req, p)),
+    posts: await serializePostsWithReactions(req, posts, viewerId),
   });
 });
 
@@ -178,6 +204,7 @@ postsRouter.get("/users/:username/friends-feed", async (req, res) => {
     const gbPosts = offlineGlowbyteWallPostRows().map((p) => ({
       ...serializePost(req, { ...p, sharedToFriendsFeed: true }),
       photoUrl,
+      ...EMPTY_REACTIONS,
       profileOwner: {
         id: p.author.id,
         username: p.author.username,
@@ -296,7 +323,7 @@ postsRouter.get("/users/:username/friends-feed", async (req, res) => {
   }
 
   res.json({
-    posts: ordered.map((p) => serializePost(req, p)),
+    posts: await serializePostsWithReactions(req, ordered, viewerId),
     meta: {
       ...metaExtras,
       bucket,
@@ -379,6 +406,61 @@ postsRouter.post("/posts/:postId/friends-feed-share", async (req, res) => {
     include: postInclude,
   });
   res.json({ post: serializePost(req, updated) });
+});
+
+postsRouter.post("/posts/:postId/reaction", async (req, res) => {
+  if (isOfflineTestUserSession(req)) {
+    respondOfflineWritesDisabled(res);
+    return;
+  }
+
+  const body = z
+    .object({
+      kind: postReactionKindSchema,
+      details: postReactionDetailsSchema.optional(),
+    })
+    .superRefine((val, ctx) => {
+      if (val.details && !reactionCollectsDetails(val.kind)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Details are only supported for disagree reactions",
+          path: ["details"],
+        });
+      }
+    })
+    .safeParse(req.body);
+  if (!body.success) {
+    res.status(400).json({ error: body.error.flatten() });
+    return;
+  }
+
+  const viewerId = req.session.userId!;
+  const post = await prisma.post.findUnique({
+    where: { id: req.params.postId },
+    select: { id: true, profileOwnerId: true },
+  });
+  if (!post) {
+    res.status(404).json({ error: "Not found" });
+    return;
+  }
+
+  try {
+    await assertCanAccessProfile(viewerId, post.profileOwnerId);
+  } catch {
+    res.status(403).json({ error: "Forbidden" });
+    return;
+  }
+
+  await upsertPostReaction(post.id, viewerId, body.data.kind, body.data.details);
+  const summaries = await loadPostReactionSummaries([post.id], viewerId);
+  const summary = summaries.get(post.id) ?? EMPTY_REACTIONS;
+
+  res.json({
+    ok: true,
+    viewerReaction: summary.viewerReaction,
+    reactions: summary.reactions,
+    reactionTotal: summary.reactionTotal,
+  });
 });
 
 postsRouter.post("/users/:username/posts", maybeMultipart, async (req, res) => {

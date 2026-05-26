@@ -63,12 +63,36 @@ type FriendsFeedReviewRec = {
   updatedAt: Date;
 };
 
+type PostReactionRec = {
+  id: string;
+  postId: string;
+  userId: string;
+  kind: string;
+  details: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+type BlogEntryRec = {
+  id: string;
+  slug: string;
+  title: string;
+  body: string;
+  committedAt: Date;
+  sha: string;
+  authorName: string;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
 const db = {
   users: [] as UserRec[],
   friendships: [] as FriendshipRec[],
   posts: [] as PostRec[],
   comments: [] as CommentRec[],
   friendsFeedReviews: [] as FriendsFeedReviewRec[],
+  postReactions: [] as PostReactionRec[],
+  blogEntries: [] as BlogEntryRec[],
 };
 
 const storage = {
@@ -429,6 +453,80 @@ const prisma = {
       return { count: before - db.friendsFeedReviews.length };
     },
   },
+  postReaction: {
+    async findMany(args: {
+      where: { postId?: { in: string[] } };
+      select: { postId: true; kind: true; userId: true };
+    }) {
+      let rows = db.postReactions.slice();
+      if (args.where.postId?.in) {
+        rows = rows.filter((r) => args.where.postId!.in.includes(r.postId));
+      }
+      return rows.map((r) => ({
+        postId: r.postId,
+        kind: r.kind,
+        userId: r.userId,
+      }));
+    },
+    async upsert(args: {
+      where: { postId_userId: { postId: string; userId: string } };
+      create: Omit<PostReactionRec, "id" | "createdAt" | "updatedAt">;
+      update: Pick<PostReactionRec, "kind" | "details">;
+    }) {
+      const existing = db.postReactions.find(
+        (r) =>
+          r.postId === args.where.postId_userId.postId &&
+          r.userId === args.where.postId_userId.userId,
+      );
+      if (existing) {
+        existing.kind = args.update.kind;
+        if (args.update.details !== undefined) existing.details = args.update.details;
+        existing.updatedAt = now();
+        return { ...existing };
+      }
+      const rec: PostReactionRec = {
+        id: id(),
+        createdAt: now(),
+        updatedAt: now(),
+        postId: args.create.postId,
+        userId: args.create.userId,
+        kind: args.create.kind,
+        details: args.create.details ?? null,
+      };
+      db.postReactions.push(rec);
+      return { ...rec };
+    },
+  },
+  blogEntry: {
+    async findMany(args: { orderBy?: { committedAt?: "desc" | "asc" } }) {
+      let rows = db.blogEntries.slice();
+      if (args.orderBy?.committedAt === "desc") {
+        rows.sort((a, b) => b.committedAt.getTime() - a.committedAt.getTime());
+      } else if (args.orderBy?.committedAt === "asc") {
+        rows.sort((a, b) => a.committedAt.getTime() - b.committedAt.getTime());
+      }
+      return rows.map((r) => ({ ...r }));
+    },
+    async upsert(args: {
+      where: { sha: string };
+      create: Omit<BlogEntryRec, "id" | "createdAt" | "updatedAt">;
+      update: Partial<Omit<BlogEntryRec, "id" | "createdAt" | "updatedAt">>;
+    }) {
+      const existing = db.blogEntries.find((e) => e.sha === args.where.sha);
+      if (existing) {
+        Object.assign(existing, args.update, { updatedAt: now() });
+        return { ...existing };
+      }
+      const rec: BlogEntryRec = {
+        id: id(),
+        createdAt: now(),
+        updatedAt: now(),
+        ...args.create,
+      };
+      db.blogEntries.push(rec);
+      return { ...rec };
+    },
+  },
   async $transaction<T>(fn: (tx: typeof prisma) => Promise<T>): Promise<T> {
     return fn(prisma);
   },
@@ -482,6 +580,8 @@ describe("api integration (phase 1)", () => {
     db.posts = [];
     db.comments = [];
     db.friendsFeedReviews = [];
+    db.postReactions = [];
+    db.blogEntries = [];
     storage.putObject.mockClear();
     storage.getPublicUrl.mockClear();
     storage.deleteObject.mockClear();
@@ -600,6 +700,68 @@ describe("api integration (phase 1)", () => {
       text: "hello alice wall",
     });
     expect(allowed.status).toBe(201);
+  });
+
+  it("upserts post reactions and returns counts on list", async () => {
+    const { alice, bob } = await createAgents();
+    await loginTestUser(alice);
+    await loginFacebookStub(bob);
+
+    await bob.post("/api/friends/request").send({ username: "testuser" });
+    await alice.post("/api/friends/accept").send({ username: "fbdemo" });
+
+    const created = await bob.post("/api/users/testuser/posts").send({
+      type: "TEXT",
+      text: "react to me",
+    });
+    expect(created.status).toBe(201);
+    const postId = created.body.post.id as string;
+
+    const react = await alice.post(`/api/posts/${postId}/reaction`).send({ kind: "celebrate" });
+    expect(react.status).toBe(200);
+    expect(react.body.viewerReaction).toBe("celebrate");
+    expect(react.body.reactionTotal).toBe(1);
+
+    const change = await alice.post(`/api/posts/${postId}/reaction`).send({ kind: "funny" });
+    expect(change.status).toBe(200);
+    expect(change.body.viewerReaction).toBe("funny");
+    expect(change.body.reactionTotal).toBe(1);
+
+    const list = await alice.get("/api/users/testuser/posts");
+    expect(list.status).toBe(200);
+    const post = list.body.posts.find((p: { id: string }) => p.id === postId);
+    expect(post.viewerReaction).toBe("funny");
+    expect(post.reactionTotal).toBe(1);
+    expect(post.reactions).toEqual([{ kind: "funny", count: 1 }]);
+  });
+
+  it("stores optional details for disagree reactions", async () => {
+    const { alice, bob } = await createAgents();
+    await loginTestUser(alice);
+    await loginFacebookStub(bob);
+
+    await bob.post("/api/friends/request").send({ username: "testuser" });
+    await alice.post("/api/friends/accept").send({ username: "fbdemo" });
+
+    const created = await bob.post("/api/users/testuser/posts").send({
+      type: "TEXT",
+      text: "disagree with this",
+    });
+    const postId = created.body.post.id as string;
+
+    const withDetails = await alice
+      .post(`/api/posts/${postId}/reaction`)
+      .send({ kind: "disagree", details: "  Not accurate  " });
+    expect(withDetails.status).toBe(200);
+    expect(withDetails.body.viewerReaction).toBe("disagree");
+
+    const row = db.postReactions.find((r) => r.postId === postId && r.userId === db.users.find((u) => u.username === "testuser")!.id);
+    expect(row?.details).toBe("Not accurate");
+
+    const rejected = await alice
+      .post(`/api/posts/${postId}/reaction`)
+      .send({ kind: "like", details: "should fail" });
+    expect(rejected.status).toBe(400);
   });
 
   it("keeps only one pinned post per profile owner", async () => {
@@ -746,6 +908,43 @@ describe("api integration (phase 1)", () => {
       rootId,
       replyId,
     ]);
+  });
+
+  it("returns blog entries sorted by committedAt desc (public)", async () => {
+    const older = new Date("2024-01-01T12:00:00.000Z");
+    const newer = new Date("2024-06-01T12:00:00.000Z");
+    db.blogEntries.push(
+      {
+        id: id(),
+        slug: "first-feature-abc1234",
+        title: "First feature",
+        body: "First feature\n\nDetails here.",
+        committedAt: older,
+        sha: "abc1234567890abcdef1234567890abcdef123456",
+        authorName: "Alice",
+        createdAt: older,
+        updatedAt: older,
+      },
+      {
+        id: id(),
+        slug: "second-release-def5678",
+        title: "Second release",
+        body: "Second release",
+        committedAt: newer,
+        sha: "def5678901234abcdef5678901234abcdef567890",
+        authorName: "Bob",
+        createdAt: newer,
+        updatedAt: newer,
+      },
+    );
+
+    const { app } = await createAgents();
+    const res = await request(app).get("/api/blog");
+    expect(res.status).toBe(200);
+    expect(res.body.entries).toHaveLength(2);
+    expect(res.body.entries[0].title).toBe("Second release");
+    expect(res.body.entries[1].title).toBe("First feature");
+    expect(res.body.entries[1].body).toContain("Details here.");
   });
 
   it("returns a friendly 400 for oversized image upload policy failures", async () => {
