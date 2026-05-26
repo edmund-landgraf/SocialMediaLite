@@ -867,6 +867,7 @@ export function ProfilePage() {
   const [friends, setFriends] = useState<PublicUser[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [bannerPreviewOpen, setBannerPreviewOpen] = useState(false);
 
   const name = useMemo(() => (username ?? "").trim().toLowerCase(), [username]);
 
@@ -1048,6 +1049,19 @@ export function ProfilePage() {
   useEffect(() => {
     setAvatarSize(readStoredSize(`sml.avatarSize:${name}`, "large"));
   }, [name]);
+
+  useEffect(() => {
+    setBannerPreviewOpen(false);
+  }, [name, profile?.user.bannerUrl]);
+
+  useEffect(() => {
+    if (!bannerPreviewOpen) return;
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") setBannerPreviewOpen(false);
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [bannerPreviewOpen]);
 
   useEffect(() => {
     return () => {
@@ -1333,34 +1347,43 @@ export function ProfilePage() {
         </div>
       </header>
 
-      {/* Banner */}
-      <div className="relative h-44 w-full border-b border-zinc-900 bg-gradient-to-br from-blue-950/70 via-zinc-950 to-purple-950/40 md:h-60">
-        {profile.meta.canViewContent && profile.user.bannerUrl ? (
-          <img className="h-full w-full object-cover opacity-95" alt="" src={profile.user.bannerUrl} />
-        ) : null}
+      {/* Banner — same width/margins as page content */}
+      <div className="mx-auto max-w-5xl px-4">
+        <div className="relative h-44 w-full overflow-hidden rounded-lg border border-zinc-900 bg-gradient-to-br from-blue-950/70 via-zinc-950 to-purple-950/40 md:h-60">
+          {profile.meta.canViewContent && profile.user.bannerUrl ? (
+            <button
+              type="button"
+              className="block h-full w-full cursor-zoom-in"
+              onClick={() => setBannerPreviewOpen(true)}
+              aria-label="View full banner image"
+            >
+              <img className="h-full w-full object-cover opacity-95" alt="" src={profile.user.bannerUrl} />
+            </button>
+          ) : null}
 
-        {profile.meta.isSelf ? (
-          <div className="absolute bottom-4 right-4">
-            <Button asChild variant="secondary" size="sm">
-              <label className="cursor-pointer px-4">
-                Banner photo
-                <input
-                  className="hidden"
-                  accept="image/*"
-                  type="file"
-                  onChange={(e) => void bannerSelected(e.target.files)}
-                />
-              </label>
-            </Button>
-          </div>
-        ) : null}
+          {profile.meta.isSelf ? (
+            <div className="absolute bottom-4 right-4 z-10">
+              <Button asChild variant="secondary" size="sm">
+                <label className="cursor-pointer px-4">
+                  Banner photo
+                  <input
+                    className="hidden"
+                    accept="image/*"
+                    type="file"
+                    onChange={(e) => void bannerSelected(e.target.files)}
+                  />
+                </label>
+              </Button>
+            </div>
+          ) : null}
+        </div>
       </div>
 
-      <main className="mx-auto mt-[-32px] max-w-5xl px-4">
-        {/* Profile header */}
+      <main className="mx-auto max-w-5xl px-4">
+        {/* Profile header — avatar overlaps banner; text column sets height, avatar pins to its bottom */}
         <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-          <div className="flex min-w-0 flex-col gap-3 md:flex-row md:items-end">
-            <div className="-ml-2 md:-ml-0">
+          <div className="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-end sm:gap-4">
+            <div className="relative z-10 shrink-0 -mt-14 md:-mt-20">
               <button
                 type="button"
                 onClick={cycleAvatarSize}
@@ -1382,14 +1405,14 @@ export function ProfilePage() {
                   {avatarSize}
                 </span>
               </button>
-              <div className="mt-2 max-w-[180px] text-center text-[11px] leading-snug text-zinc-400 md:text-left">
+              <div className="mt-2 max-w-[180px] text-center text-[11px] leading-snug text-zinc-400 sm:hidden">
                 <div className="truncate font-semibold text-zinc-300">{profile.user.displayName}</div>
                 <div className="truncate">{profile.user.email ?? "email not available"}</div>
               </div>
             </div>
 
-            <div className="min-w-0 pb-1">
-              <div className="truncate text-[28px] font-bold tracking-tight text-white md:text-[32px]">
+            <div className="relative z-10 min-w-0 flex-1 pb-1 sm:pt-6 md:pt-8">
+              <div className="truncate text-[28px] font-bold leading-tight tracking-tight text-white md:text-[32px]">
                 {profile.user.displayName}
               </div>
 
@@ -1850,6 +1873,33 @@ export function ProfilePage() {
           </>
         )}
       </main>
+
+      {bannerPreviewOpen && profile.user.bannerUrl ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Banner image preview"
+          onClick={() => setBannerPreviewOpen(false)}
+        >
+          <Button
+            type="button"
+            variant="secondary"
+            size="icon"
+            className="absolute right-4 top-4 z-10 size-9 bg-zinc-900/90"
+            aria-label="Close banner preview"
+            onClick={() => setBannerPreviewOpen(false)}
+          >
+            <X />
+          </Button>
+          <img
+            src={profile.user.bannerUrl}
+            alt=""
+            className="max-h-[92vh] max-w-[min(96vw,1200px)] rounded-lg object-contain shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      ) : null}
     </div>
   );
 }

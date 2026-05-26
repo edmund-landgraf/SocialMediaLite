@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
-import { apiJson } from "@/lib/api";
+import { apiFetch, apiJson } from "@/lib/api";
 import type { PublicUser } from "@/types";
 
 type FriendshipStatus = "self" | "none" | "pending_out" | "pending_in" | "accepted" | "blocked";
@@ -89,6 +89,11 @@ export function FriendsPage() {
     await postFriendAction("/api/friends/remove", username);
   }
 
+  async function logout() {
+    await apiFetch("/api/auth/logout", { method: "POST" });
+    nav("/login");
+  }
+
   function actionFor(row: { user: PublicUser; friendshipStatus: FriendshipStatus }) {
     const disabled = busyUser === row.user.username;
     if (row.friendshipStatus === "none") {
@@ -149,13 +154,19 @@ export function FriendsPage() {
         </div>
         <div className="flex gap-2">
           {me ? (
-            <Button asChild variant="secondary" size="sm">
-              <Link to={`/${me.username}`}>My profile</Link>
+            <>
+              <Button asChild variant="secondary" size="sm">
+                <Link to={`/${me.username}`}>My profile</Link>
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => void logout()}>
+                Logout
+              </Button>
+            </>
+          ) : (
+            <Button variant="ghost" size="sm" onClick={() => nav("/login")}>
+              Login
             </Button>
-          ) : null}
-          <Button variant="ghost" size="sm" onClick={() => nav("/login")}>
-            Login
-          </Button>
+          )}
         </div>
       </header>
 

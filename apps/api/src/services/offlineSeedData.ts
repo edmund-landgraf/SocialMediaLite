@@ -1,19 +1,29 @@
 import type { User } from "@prisma/client";
+import {
+  findStubTestUserProfileByOfflineUserId,
+  getStubTestUserProfile,
+  type StubTestUserKind,
+} from "@socialmedialite/shared";
 import { AI_FRIEND, aiFriendIntroSvg } from "./aiFriend.js";
 
-/** Stable ids so offline mode matches the same logical users as DB seed (testuser + Glowbyte). */
-export const OFFLINE_TEST_USER_ID = "00000000-0000-4000-8000-00000000e1e1";
-export const OFFLINE_TEST_USERNAME = "testuser";
+/** @deprecated Use getStubTestUserProfile("test_user").offlineUserId */
+export const OFFLINE_TEST_USER_ID = getStubTestUserProfile("test_user").offlineUserId;
+/** @deprecated Use getStubTestUserProfile("test_user").username */
+export const OFFLINE_TEST_USERNAME = getStubTestUserProfile("test_user").username;
 
 export const OFFLINE_GLOWBYTE_USER_ID = "00000000-0000-4000-8000-00000000e2e2";
 
 const epoch = new Date("2020-01-01T00:00:00.000Z");
 
-export function offlineTestUserRow(): User {
+function offlineUserRow(profile: {
+  id: string;
+  username: string;
+  displayName: string;
+}): User {
   return {
-    id: OFFLINE_TEST_USER_ID,
-    username: OFFLINE_TEST_USERNAME,
-    displayName: "Test User",
+    id: profile.id,
+    username: profile.username,
+    displayName: profile.displayName,
     email: null,
     fbUserId: null,
     profilePicUrl: null,
@@ -21,6 +31,30 @@ export function offlineTestUserRow(): User {
     createdAt: epoch,
     updatedAt: epoch,
   };
+}
+
+export function offlineStubTestUserRow(kind: StubTestUserKind): User {
+  const profile = getStubTestUserProfile(kind);
+  return offlineUserRow({
+    id: profile.offlineUserId,
+    username: profile.username,
+    displayName: profile.displayName,
+  });
+}
+
+export function offlineStubTestUserRowById(userId: string): User | null {
+  const profile = findStubTestUserProfileByOfflineUserId(userId);
+  if (!profile) return null;
+  return offlineUserRow({
+    id: profile.offlineUserId,
+    username: profile.username,
+    displayName: profile.displayName,
+  });
+}
+
+/** @deprecated Use offlineStubTestUserRow("test_user") */
+export function offlineTestUserRow(): User {
+  return offlineStubTestUserRow("test_user");
 }
 
 export function offlineGlowbyteUserRow(): User {
@@ -81,4 +115,4 @@ export function offlineGlowbyteWallPostRows() {
 }
 
 export const OFFLINE_SEED_BROWSE_NOTE =
-  "Offline seed: Test User is friends with Glowbyte (same as DB seed). Start Postgres for full data.";
+  "Offline seed: stub test users are friends with Glowbyte (same as DB seed). Start Postgres for full data.";

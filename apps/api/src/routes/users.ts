@@ -6,8 +6,9 @@ import { requireAuth } from "../middleware/auth.js";
 import { areAcceptedFriends } from "../services/access.js";
 import { processImageToMaxSize } from "../services/image.js";
 import { AI_FRIEND } from "../services/aiFriend.js";
-import { offlineGlowbyteUserRow, OFFLINE_TEST_USERNAME, offlineTestUserRow } from "../services/offlineSeedData.js";
+import { offlineGlowbyteUserRow, offlineStubTestUserRowById } from "../services/offlineSeedData.js";
 import { isOfflineTestUserSession, respondOfflineWritesDisabled } from "../services/offlineTestUser.js";
+import { findStubTestUserProfileByOfflineUserId, findStubTestUserProfileByUsername } from "@socialmedialite/shared";
 import { serializeUser } from "../services/serializers.js";
 
 const upload = multer({
@@ -19,7 +20,11 @@ export const usersRouter = Router();
 
 usersRouter.get("/me", requireAuth, async (req, res) => {
   if (isOfflineTestUserSession(req)) {
-    const u = offlineTestUserRow();
+    const u = offlineStubTestUserRowById(req.session.userId!);
+    if (!u) {
+      res.status(404).json({ error: "Not found" });
+      return;
+    }
     res.json({
       user: {
         ...serializeUser(u),
@@ -55,8 +60,10 @@ usersRouter.get("/users/:username", requireAuth, async (req, res) => {
 
   if (isOfflineTestUserSession(req)) {
     const un = params.data.username;
-    if (un === OFFLINE_TEST_USERNAME) {
-      const profile = offlineTestUserRow();
+    const stubProfile = findStubTestUserProfileByUsername(un);
+    const sessionProfile = findStubTestUserProfileByOfflineUserId(req.session.userId!);
+    if (stubProfile && sessionProfile?.username === stubProfile.username) {
+      const profile = offlineStubTestUserRowById(sessionProfile.offlineUserId)!;
       const viewerId = req.session.userId!;
       const isSelf = viewerId === profile.id;
       const baseUrl = `${req.protocol}://${req.get("host")}`;

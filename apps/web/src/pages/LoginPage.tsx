@@ -1,14 +1,21 @@
 import { Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import {
+  getStubTestUserProfile,
+  STUB_TEST_USER_LOGIN_OPTIONS,
+  type StubTestUserKind,
+} from "@socialmedialite/shared";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { apiJson, apiUrl } from "@/lib/api";
 
+type ActiveLoginKind = StubTestUserKind | "facebook" | null;
+
 export function LoginPage() {
   const nav = useNavigate();
   const [busy, setBusy] = useState(false);
-  const [activeKind, setActiveKind] = useState<"facebook" | "test_user" | null>(null);
+  const [activeKind, setActiveKind] = useState<ActiveLoginKind>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -28,15 +35,15 @@ export function LoginPage() {
     }
   }, []);
 
-  async function stubLogin(kind: "test_user") {
-    await apiJson<{ user: { username: string } }>("/api/auth/stub-login", {
+  async function stubLogin(kind: StubTestUserKind) {
+    const { user } = await apiJson<{ user: { username: string } }>("/api/auth/stub-login", {
       method: "POST",
       body: JSON.stringify({ kind }),
     });
-    nav("/testuser");
+    nav(`/${encodeURIComponent(user.username)}`);
   }
 
-  async function submit(kind: "test_user") {
+  async function submit(kind: StubTestUserKind) {
     setBusy(true);
     setActiveKind(kind);
     setError(null);
@@ -83,25 +90,34 @@ export function LoginPage() {
                   <>Login with Facebook</>
                 )}
               </Button>
-              <Button
-                type="button"
-                variant="secondary"
-                className="w-full gap-3"
-                disabled={busy}
-                onClick={() => void submit("test_user")}
-              >
-                {busy && activeKind === "test_user" ? (
-                  <>
-                    <Loader2 className="animate-spin" />
-                    Signing in…
-                  </>
-                ) : (
-                  <>Login with test user</>
-                )}
-              </Button>
+              {STUB_TEST_USER_LOGIN_OPTIONS.map((option) => (
+                <Button
+                  key={option.kind}
+                  type="button"
+                  variant="secondary"
+                  className="w-full gap-3"
+                  disabled={busy}
+                  onClick={() => void submit(option.kind)}
+                >
+                  {busy && activeKind === option.kind ? (
+                    <>
+                      <Loader2 className="animate-spin" />
+                      Signing in…
+                    </>
+                  ) : (
+                    <>
+                      {option.label}
+                      <span className="text-xs font-normal text-zinc-400">
+                        (@{getStubTestUserProfile(option.kind).username})
+                      </span>
+                    </>
+                  )}
+                </Button>
+              ))}
 
               <div className="text-[11px] leading-relaxed text-zinc-400">
-                Facebook login uses public profile scope only (name + profile picture). Test user auto-links with Glowbyte.
+                Facebook login uses public profile scope only (name + profile picture). Stub test users
+                auto-link with Glowbyte.
               </div>
 
               {error ? <div className="rounded-md bg-red-950/40 px-3 py-2 text-sm text-red-200">{error}</div> : null}

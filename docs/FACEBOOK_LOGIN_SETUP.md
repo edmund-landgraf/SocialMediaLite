@@ -110,3 +110,7 @@ In Meta app roles/tools, create Facebook test users and validate:
 ---
 
 Implementation scope for this phase remains intentionally limited to profile name, email, and profile picture via `public_profile,email`.
+
+---
+
+See also: [README.md](README.md) (documentation index).

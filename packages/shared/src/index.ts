@@ -1,4 +1,17 @@
 import { z } from "zod";
+import { STUB_TEST_USER_KINDS, type StubTestUserKind } from "./stubTestUsers.js";
+
+export {
+  STUB_TEST_USERS,
+  STUB_TEST_USER_KINDS,
+  STUB_TEST_USER_LOGIN_OPTIONS,
+  findStubTestUserProfileByOfflineUserId,
+  findStubTestUserProfileByUsername,
+  getStubTestUserProfile,
+  isStubTestUserKind,
+  type StubTestUserKind,
+  type StubTestUserProfile,
+} from "./stubTestUsers.js";
 
 export const usernameSchema = z
   .string()
@@ -14,6 +27,7 @@ export const FACEBOOK_STUB_AVATAR_URL =
 
 export const stubLoginSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("test_user") }),
+  z.object({ kind: z.literal("test_user_2") }),
   z.object({ kind: z.literal("facebook_stub") }),
 ]);
 

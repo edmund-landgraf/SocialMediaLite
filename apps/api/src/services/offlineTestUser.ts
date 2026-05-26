@@ -1,19 +1,29 @@
 import type { Request, Response } from "express";
 import { Prisma } from "@prisma/client";
+import {
+  findStubTestUserProfileByOfflineUserId,
+} from "@socialmedialite/shared";
 
 export {
+  OFFLINE_GLOWBYTE_USER_ID,
   OFFLINE_TEST_USER_ID,
   OFFLINE_TEST_USERNAME,
   offlineGlowbyteIntroPhotoDataUrl,
   offlineGlowbyteUserRow,
   offlineGlowbyteWallPostRows,
+  offlineStubTestUserRow,
+  offlineStubTestUserRowById,
   offlineTestUserRow,
 } from "./offlineSeedData.js";
 
-import { OFFLINE_TEST_USER_ID } from "./offlineSeedData.js";
-
 export function isOfflineTestUserSession(req: Request): boolean {
-  return Boolean(req.session.offlineTestUser && req.session.userId === OFFLINE_TEST_USER_ID);
+  if (!req.session.offlineTestUser || !req.session.userId) return false;
+  return findStubTestUserProfileByOfflineUserId(req.session.userId) != null;
+}
+
+export function offlineSessionStubUsername(req: Request): string | null {
+  if (!req.session.userId) return null;
+  return findStubTestUserProfileByOfflineUserId(req.session.userId)?.username ?? null;
 }
 
 export function isPrismaConnectionError(e: unknown): boolean {

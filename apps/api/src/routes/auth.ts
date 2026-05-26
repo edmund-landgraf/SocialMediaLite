@@ -1,14 +1,19 @@
 import crypto from "node:crypto";
 import { Router } from "express";
 import { Prisma } from "@prisma/client";
-import { FACEBOOK_STUB_AVATAR_URL, stubLoginSchema } from "@socialmedialite/shared";
+import {
+  FACEBOOK_STUB_AVATAR_URL,
+  getStubTestUserProfile,
+  isStubTestUserKind,
+  stubLoginSchema,
+} from "@socialmedialite/shared";
 import { prisma } from "../lib/prisma.js";
 import { ensureAiFriendshipForUser } from "../services/aiFriend.js";
 import {
   isPrismaConnectionError,
-  OFFLINE_TEST_USER_ID,
-  offlineTestUserRow,
+  offlineStubTestUserRow,
 } from "../services/offlineTestUser.js";
+import { loginStubTestUser } from "../services/stubTestUsers.js";
 import { serializeUser } from "../services/serializers.js";
 
 export const authRouter = Router();
@@ -173,43 +178,19 @@ authRouter.post("/stub-login", async (req, res) => {
   }
   const kind = parsed.data.kind;
 
-  if (kind === "test_user") {
-    const identity = {
-      username: "testuser",
-      displayName: "Test User",
-      email: null as string | null,
-      fbUserId: null as string | null,
-      profilePicUrl: null as string | null,
-    };
+  if (isStubTestUserKind(kind)) {
     try {
-      const user = await prisma.user.upsert({
-        where: { username: identity.username },
-        create: {
-          displayName: identity.displayName,
-          username: identity.username,
-          email: identity.email,
-          fbUserId: identity.fbUserId,
-          profilePicUrl: identity.profilePicUrl,
-        },
-        update: {
-          displayName: identity.displayName,
-          email: identity.email,
-          fbUserId: identity.fbUserId,
-          profilePicUrl: identity.profilePicUrl,
-        },
-      });
-
-      await ensureAiFriendshipForUser(user.id);
-
+      const user = await loginStubTestUser(kind);
       delete req.session.offlineTestUser;
       req.session.userId = user.id;
       res.json({ user: serializeUser(user) });
       return;
     } catch (e) {
       if (isPrismaConnectionError(e)) {
-        req.session.userId = OFFLINE_TEST_USER_ID;
+        const profile = getStubTestUserProfile(kind);
+        req.session.userId = profile.offlineUserId;
         req.session.offlineTestUser = true;
-        res.json({ user: serializeUser(offlineTestUserRow()) });
+        res.json({ user: serializeUser(offlineStubTestUserRow(kind)) });
         return;
       }
       console.error("stub-login failed:", e);
@@ -238,6 +219,11 @@ authRouter.post("/stub-login", async (req, res) => {
       });
       return;
     }
+  }
+
+  if (kind !== "facebook_stub") {
+    res.status(400).json({ error: "Unknown stub login kind" });
+    return;
   }
 
   const identity = {

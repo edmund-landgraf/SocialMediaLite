@@ -508,6 +508,29 @@ describe("api integration (phase 1)", () => {
     expect(res.status).toBe(200);
   }
 
+  async function loginTestUser2(agent: request.SuperAgentTest) {
+    const res = await agent.post("/api/auth/stub-login").send({ kind: "test_user_2" });
+    expect(res.status).toBe(200);
+    expect(res.body.user.username).toBe("testuser2");
+  }
+
+  it("logs in stub test user 2 on own profile", async () => {
+    const { alice } = await createAgents();
+    await loginTestUser2(alice);
+
+    const profile = await alice.get("/api/users/testuser2");
+    expect(profile.status).toBe(200);
+    expect(profile.body.user.username).toBe("testuser2");
+    expect(profile.body.meta.isSelf).toBe(true);
+
+    const post = await alice.post("/api/users/testuser2/posts").send({
+      type: "TEXT",
+      text: "hello from test user 2",
+    });
+    expect(post.status).toBe(201);
+    expect(post.body.post.text).toBe("hello from test user 2");
+  });
+
   it("creates a text post on own page", async () => {
     const { alice } = await createAgents();
     await loginTestUser(alice);

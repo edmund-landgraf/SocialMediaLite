@@ -12,7 +12,6 @@ import { processImageToMaxSize } from "../services/image.js";
 import {
   offlineGlowbyteIntroPhotoDataUrl,
   offlineGlowbyteWallPostRows,
-  OFFLINE_TEST_USERNAME,
 } from "../services/offlineSeedData.js";
 import {
   rankFriendsFeedPosts,
@@ -26,7 +25,11 @@ import {
   upsertFriendsFeedReview,
   type FriendsFeedBucket,
 } from "../services/friendsFeedReview.js";
-import { isOfflineTestUserSession, respondOfflineWritesDisabled } from "../services/offlineTestUser.js";
+import {
+  isOfflineTestUserSession,
+  offlineSessionStubUsername,
+  respondOfflineWritesDisabled,
+} from "../services/offlineTestUser.js";
 
 const friendsFeedBucketSchema = z.enum(["unread", "read", "saved", "discarded"]);
 const friendsFeedReviewActionSchema = z.enum(["read", "save", "discard"]);
@@ -110,7 +113,7 @@ postsRouter.get("/users/:username/posts", async (req, res) => {
     return;
   }
 
-  if (isOfflineTestUserSession(req) && params.data.username === OFFLINE_TEST_USERNAME) {
+  if (isOfflineTestUserSession(req) && offlineSessionStubUsername(req) === params.data.username) {
     res.json({ posts: [] });
     return;
   }
@@ -170,7 +173,7 @@ postsRouter.get("/users/:username/friends-feed", async (req, res) => {
 
   const viewerId = req.session.userId!;
 
-  if (isOfflineTestUserSession(req) && params.data.username === OFFLINE_TEST_USERNAME) {
+  if (isOfflineTestUserSession(req) && offlineSessionStubUsername(req) === params.data.username) {
     const photoUrl = offlineGlowbyteIntroPhotoDataUrl();
     const gbPosts = offlineGlowbyteWallPostRows().map((p) => ({
       ...serializePost(req, { ...p, sharedToFriendsFeed: true }),

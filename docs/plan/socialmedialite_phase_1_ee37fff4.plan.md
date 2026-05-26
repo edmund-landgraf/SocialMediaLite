@@ -248,3 +248,15 @@ Profile page layout:
 - Comments
 - Friends request/accept + UI navigation
 - Polish UI with shadcn components and good empty/loading states
+
+---
+
+## Phase 2 (separate plans — not in this checklist)
+
+Post–Phase 1 AI features are documented outside this file:
+
+- [../AI_ADD_KNOWLEDGE.md](../AI_ADD_KNOWLEDGE.md) — AI Add + hybrid profile chatbot
+- [../FRIEND_SELECT_CHAT.md](../FRIEND_SELECT_CHAT.md) — friend select chat (split pane)
+- [../FB_TO_SML_SHARE_LINK.md](../FB_TO_SML_SHARE_LINK.md) — FB → SML public share links (Open Graph)
+- [../PUSH_TO_FB.md](../PUSH_TO_FB.md) — Push SML post to Facebook
+- [../README.md](../README.md) — documentation index
