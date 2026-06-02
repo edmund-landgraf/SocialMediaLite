@@ -70,11 +70,10 @@ function parseFacebookGraphErrorBody(raw: string): string | null {
   }
 }
 
-async function facebookGraphRequestError(res: Response, context: string): Promise<Error> {
-  const body = await res.text();
+function facebookGraphRequestError(status: number, body: string, context: string): Error {
   const detail = parseFacebookGraphErrorBody(body);
   if (detail) return new Error(`${context}: ${detail}`);
-  return new Error(`${context} (HTTP ${res.status})`);
+  return new Error(`${context} (HTTP ${status})`);
 }
 
 function formatOAuthFailure(err: unknown): string {
@@ -139,10 +138,7 @@ async function exchangeFacebookCodeForToken(config: FacebookConfig, code: string
   const res = await fetch(tokenUrl, { method: "GET" });
   const body = await res.text();
   if (!res.ok) {
-    throw await facebookGraphRequestError(
-      new Response(body, { status: res.status }),
-      "Facebook token exchange failed",
-    );
+    throw facebookGraphRequestError(res.status, body, "Facebook token exchange failed");
   }
   let data: { access_token?: string; error?: { message?: string } };
   try {
@@ -164,10 +160,7 @@ async function fetchFacebookMe(config: FacebookConfig, accessToken: string): Pro
   const res = await fetch(meUrl, { method: "GET" });
   const body = await res.text();
   if (!res.ok) {
-    throw await facebookGraphRequestError(
-      new Response(body, { status: res.status }),
-      "Facebook profile fetch failed",
-    );
+    throw facebookGraphRequestError(res.status, body, "Facebook profile fetch failed");
   }
   const me = JSON.parse(body) as FacebookMe & { error?: { message?: string } };
   if (me.error?.message) {
