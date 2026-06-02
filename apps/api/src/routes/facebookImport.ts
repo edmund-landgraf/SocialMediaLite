@@ -5,9 +5,12 @@ import { requireAuth } from "../middleware/auth.js";
 import { prisma } from "../lib/prisma.js";
 import { isOfflineTestUserSession, respondOfflineWritesDisabled } from "../services/offlineTestUser.js";
 import {
+  enrichFacebookPostPreviewById,
+  fetchFacebookGraphPosts,
   fetchFacebookPostsFromGraph,
   filterFacebookPostsByTitle,
   importFacebookPostToWall,
+  mapGraphPostToPreview,
 } from "../services/facebookImport.js";
 import { downloadFacebookImage } from "../services/facebookReelMetadata.js";
 
@@ -149,9 +152,36 @@ facebookImportRouter.post("/facebook/posts/search", async (req, res, next) => {
   }
 
   try {
-    const posts = await fetchFacebookPostsFromGraph(sessionCheck.token, 50);
-    const matches = filterFacebookPostsByTitle(posts, body.data.query).slice(0, 10);
-    res.json({ posts: matches, query: body.data.query });
+    const graphPosts = await fetchFacebookGraphPosts(sessionCheck.token, 50);
+    const previews = graphPosts.map(mapGraphPostToPreview);
+    const posts = filterFacebookPostsByTitle(previews, body.data.query).slice(0, 10);
+    res.json({ posts, query: body.data.query });
+  } catch (e) {
+    next(e instanceof Error ? e : new Error(String(e)));
+  }
+});
+
+facebookImportRouter.get("/facebook/posts/:fbPostId/preview", async (req, res, next) => {
+  if (isOfflineTestUserSession(req)) {
+    res.status(404).json({ error: "Not found" });
+    return;
+  }
+  const viewerId = req.session.userId!;
+  const userCheck = await requireRealFacebookUser(viewerId);
+  if (!userCheck.ok) {
+    res.status(403).json({ error: userCheck.error });
+    return;
+  }
+  const sessionCheck = requireFacebookSession(req);
+  if ("error" in sessionCheck) {
+    res.status(401).json({ error: sessionCheck.error });
+    return;
+  }
+
+  const fbPostId = z.string().trim().min(1).max(128).parse(req.params.fbPostId);
+  try {
+    const post = await enrichFacebookPostPreviewById(sessionCheck.token, fbPostId);
+    res.json({ post });
   } catch (e) {
     next(e instanceof Error ? e : new Error(String(e)));
   }

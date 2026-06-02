@@ -13,6 +13,23 @@ import {
 
 type ActiveLoginKind = StubTestUserKind | "facebook" | null;
 
+function loginErrorFromSearchParams(params: URLSearchParams): string | null {
+  const reason = params.get("reason")?.trim();
+  if (reason) return reason;
+
+  const code = params.get("error");
+  if (code === "fb_not_configured") {
+    return "Facebook Login is not configured on the server (FACEBOOK_APP_ID / FACEBOOK_APP_SECRET).";
+  }
+  if (code === "fb_state_or_code") {
+    return "Facebook login was cancelled or the OAuth callback could not verify session state.";
+  }
+  if (code === "fb_login_failed") {
+    return "Facebook login failed with no additional detail from the server.";
+  }
+  return null;
+}
+
 export function LoginPage() {
   const nav = useNavigate();
   const [busy, setBusy] = useState(false);
@@ -20,20 +37,13 @@ export function LoginPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const code = new URLSearchParams(window.location.search).get("error");
-    if (!code) return;
-    if (code === "fb_not_configured") {
-      setError("Facebook Login is not configured on the server.");
-      return;
-    }
-    if (code === "fb_state_or_code") {
-      setError("Facebook login was cancelled or had an invalid state.");
-      return;
-    }
-    if (code === "fb_login_failed") {
-      setError("Facebook login failed. Please try again.");
-      return;
-    }
+    const params = new URLSearchParams(window.location.search);
+    const message = loginErrorFromSearchParams(params);
+    if (message) setError(message);
+    params.delete("error");
+    params.delete("reason");
+    const next = params.toString();
+    window.history.replaceState({}, "", next ? `/login?${next}` : "/login");
   }, []);
 
   async function stubLogin(kind: StubTestUserKind) {
@@ -122,11 +132,16 @@ export function LoginPage() {
               ))}
 
               <div className="text-[11px] leading-relaxed text-zinc-400">
-                Facebook login uses public profile scope only (name + profile picture). Stub test users
-                auto-link with Glowbyte.
+                Facebook login uses public profile + email only. Timeline import requests{" "}
+                <code className="text-zinc-300">user_posts</code> separately when you click Import.
+                Stub test users auto-link with Glowbyte.
               </div>
 
-              {error ? <div className="rounded-md bg-red-950/40 px-3 py-2 text-sm text-red-200">{error}</div> : null}
+              {error ? (
+                <div className="rounded-md bg-red-950/40 px-3 py-2 text-sm leading-relaxed text-red-200">
+                  {error}
+                </div>
+              ) : null}
             </div>
           </CardContent>
         </Card>

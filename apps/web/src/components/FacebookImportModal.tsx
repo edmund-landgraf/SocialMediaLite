@@ -60,21 +60,63 @@ export function FacebookImportModal(props: {
 }) {
   const [posts, setPosts] = useState<FacebookPostPreviewDTO[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [enrichedById, setEnrichedById] = useState<Record<string, FacebookPostPreviewDTO>>({});
+  const [enrichingId, setEnrichingId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [searching, setSearching] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [needsImportAuth, setNeedsImportAuth] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const selectedPost = useMemo(
-    () => posts.find((post) => post.id === selectedId) ?? null,
-    [posts, selectedId],
+  const selectedPost = useMemo(() => {
+    if (!selectedId) return null;
+    return enrichedById[selectedId] ?? posts.find((post) => post.id === selectedId) ?? null;
+  }, [enrichedById, posts, selectedId]);
+
+  const isSelectedReelEnriched = selectedId != null && Boolean(enrichedById[selectedId]);
+
+  const enrichPreview = useCallback(async (fbPostId: string) => {
+    if (enrichedById[fbPostId]) return;
+    setEnrichingId(fbPostId);
+    setError(null);
+    try {
+      const resp = await apiJson<{ post: FacebookPostPreviewDTO }>(
+        `/api/facebook/posts/${encodeURIComponent(fbPostId)}/preview`,
+      );
+      setEnrichedById((prev) => ({ ...prev, [fbPostId]: resp.post }));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load reel preview");
+    } finally {
+      setEnrichingId((current) => (current === fbPostId ? null : current));
+    }
+  }, [enrichedById]);
+
+  const selectPost = useCallback(
+    (post: FacebookPostPreviewDTO) => {
+      setSelectedId(post.id);
+      if (post.previewType === "reel" && !enrichedById[post.id]) {
+        void enrichPreview(post.id);
+      }
+    },
+    [enrichPreview, enrichedById],
   );
 
   const loadRecent = useCallback(async () => {
     setLoading(true);
     setError(null);
+    setEnrichedById({});
     try {
+      const eligibility = await apiJson<{ eligible: boolean; reason?: string }>(
+        "/api/facebook/import/eligibility",
+      );
+      setNeedsImportAuth(!eligibility.eligible);
+      if (!eligibility.eligible) {
+        setPosts([]);
+        setSelectedId(null);
+        return;
+      }
+
       const resp = await apiJson<{ posts: FacebookPostPreviewDTO[] }>("/api/facebook/posts?limit=10");
       setPosts(resp.posts);
       setSelectedId(resp.posts[0]?.id ?? null);
@@ -86,6 +128,13 @@ export function FacebookImportModal(props: {
       setLoading(false);
     }
   }, []);
+
+  function connectFacebookForImport() {
+    const returnTo = `${window.location.pathname}?fbImport=1`;
+    window.location.href = apiUrl(
+      `/api/auth/facebook/import/start?returnTo=${encodeURIComponent(returnTo)}`,
+    );
+  }
 
   useEffect(() => {
     if (!props.open) return;
@@ -100,6 +149,7 @@ export function FacebookImportModal(props: {
     }
     setSearching(true);
     setError(null);
+    setEnrichedById({});
     try {
       const resp = await apiJson<{ posts: FacebookPostPreviewDTO[]; query: string }>(
         "/api/facebook/posts/search",
@@ -191,20 +241,33 @@ export function FacebookImportModal(props: {
               <span className="text-right">Type</span>
             </div>
             <div className="max-h-[min(52vh,420px)] overflow-y-auto">
-              {loading ? (
+              {needsImportAuth ? (
+                <div className="space-y-3 px-4 py-6">
+                  <p className="text-sm leading-relaxed text-zinc-400">
+                    Import needs permission to read your Facebook timeline posts. Connect once to
+                    enable import — login alone does not grant this.
+                  </p>
+                  <Button type="button" className="w-full" onClick={connectFacebookForImport}>
+                    Connect Facebook for import
+                  </Button>
+                </div>
+              ) : null}
+
+              {!needsImportAuth && loading ? (
                 <div className="flex items-center gap-2 px-4 py-6 text-sm text-zinc-400">
                   <Loader2 className="size-4 animate-spin" />
                   Loading posts…
                 </div>
               ) : null}
 
-              {!loading && posts.length === 0 ? (
+              {!needsImportAuth && !loading && posts.length === 0 ? (
                 <p className="px-4 py-6 text-sm leading-relaxed text-zinc-500">
                   No posts found. Try Search or re-login with Facebook.
                 </p>
               ) : null}
 
-              {posts.map((post, index) => {
+              {!needsImportAuth
+                ? posts.map((post, index) => {
                 const selected = selectedId === post.id;
                 return (
                   <button
@@ -217,7 +280,7 @@ export function FacebookImportModal(props: {
                         ? "border-l-[3px] border-l-sky-400 bg-sky-950/25 pl-[calc(0.75rem-3px)]"
                         : "border-l-[3px] border-l-transparent hover:bg-zinc-800/40",
                     ].join(" ")}
-                    onClick={() => setSelectedId(post.id)}
+                    onClick={() => selectPost(post)}
                   >
                     <span className="pt-0.5 text-xs tabular-nums leading-tight text-zinc-500">
                       {formatWhen(post.createdTime)}
@@ -240,7 +303,8 @@ export function FacebookImportModal(props: {
                     </span>
                   </button>
                 );
-              })}
+              })
+                : null}
             </div>
           </div>
 
@@ -271,7 +335,16 @@ export function FacebookImportModal(props: {
                     />
                   </div>
                 ) : null}
-                {selectedPost.previewType === "reel" && selectedPost.previewReelPublic ? (
+                {selectedPost.previewType === "reel" && enrichingId === selectedId ? (
+                  <div className="mt-4 flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-950/40 px-3 py-4 text-sm text-zinc-400">
+                    <Loader2 className="size-4 animate-spin" />
+                    Loading reel preview…
+                  </div>
+                ) : null}
+                {selectedPost.previewType === "reel" &&
+                enrichingId !== selectedId &&
+                isSelectedReelEnriched &&
+                selectedPost.previewReelPublic ? (
                   <div className="mt-4 overflow-hidden rounded-lg border border-zinc-800 bg-zinc-950/70">
                     <div className="flex flex-col sm:flex-row">
                       <div className="relative h-[124px] w-full shrink-0 overflow-hidden bg-zinc-900 sm:w-[238px]">
@@ -316,7 +389,10 @@ export function FacebookImportModal(props: {
                     </div>
                   </div>
                 ) : null}
-                {selectedPost.previewType === "reel" && !selectedPost.previewReelPublic ? (
+                {selectedPost.previewType === "reel" &&
+                enrichingId !== selectedId &&
+                isSelectedReelEnriched &&
+                !selectedPost.previewReelPublic ? (
                   <div className="mt-4 space-y-2 rounded-lg border border-zinc-800/80 bg-zinc-950/40 px-3 py-3">
                     <p className="text-sm font-medium text-zinc-300">
                       This content isn&apos;t available right now

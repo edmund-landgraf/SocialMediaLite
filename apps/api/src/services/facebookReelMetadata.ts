@@ -233,7 +233,16 @@ export type FetchFacebookReelMetadataOpts = {
   videoIdHint?: string | null;
   /** Embed from the user's own timeline post (Graph /me/posts) — avoids anonymous reel page login wall. */
   postEmbed?: FacebookReelMetadata | null;
+  /**
+   * When true (default), skip Graph Video node sideload — saves app-level API quota.
+   * Post embed + yt-dlp resolve public reels without extra Graph calls.
+   */
+  skipGraphSideload?: boolean;
 };
+
+function graphSideloadEnabled(): boolean {
+  return process.env.FB_REEL_GRAPH_SIDELOAD === "1";
+}
 
 export type ReelGraphSignals = {
   videoNodeOk: boolean;
@@ -385,29 +394,6 @@ export async function resolveFacebookReel(
     ...postEmbedSignals(normalizedOpts.postEmbed),
   };
 
-  const userGraph = await sideloadVideoNode(userAccessToken, reelId);
-  merged = mergeMetadata(reelId, merged, userGraph.metadata);
-  signals = {
-    videoNodeOk: userGraph.signals.videoNodeOk,
-    graphThumbnailOk: userGraph.signals.graphThumbnailOk,
-    postEmbedOk: signals.postEmbedOk,
-    ytDlpOk: signals.ytDlpOk,
-  };
-
-  if (!isPublicReel(merged, signals)) {
-    const appToken = appAccessToken();
-    if (appToken && appToken !== userAccessToken) {
-      const appGraph = await sideloadVideoNode(appToken, reelId);
-      merged = mergeMetadata(reelId, merged, appGraph.metadata);
-      signals = {
-        videoNodeOk: signals.videoNodeOk || appGraph.signals.videoNodeOk,
-        graphThumbnailOk: signals.graphThumbnailOk || appGraph.signals.graphThumbnailOk,
-        postEmbedOk: signals.postEmbedOk,
-        ytDlpOk: signals.ytDlpOk,
-      };
-    }
-  }
-
   if (!isPublicReel(merged, signals)) {
     const viaYtDlp = await sideloadViaYtDlp(canonical);
     merged = mergeMetadata(reelId, merged, viaYtDlp.metadata);
@@ -415,6 +401,32 @@ export async function resolveFacebookReel(
       ...signals,
       ytDlpOk: viaYtDlp.ytDlpOk,
     };
+  }
+
+  const skipGraph = normalizedOpts.skipGraphSideload !== false && !graphSideloadEnabled();
+  if (!skipGraph && !isPublicReel(merged, signals)) {
+    const userGraph = await sideloadVideoNode(userAccessToken, reelId);
+    merged = mergeMetadata(reelId, merged, userGraph.metadata);
+    signals = {
+      videoNodeOk: userGraph.signals.videoNodeOk,
+      graphThumbnailOk: userGraph.signals.graphThumbnailOk,
+      postEmbedOk: signals.postEmbedOk,
+      ytDlpOk: signals.ytDlpOk,
+    };
+
+    if (!isPublicReel(merged, signals)) {
+      const appToken = appAccessToken();
+      if (appToken && appToken !== userAccessToken) {
+        const appGraph = await sideloadVideoNode(appToken, reelId);
+        merged = mergeMetadata(reelId, merged, appGraph.metadata);
+        signals = {
+          videoNodeOk: signals.videoNodeOk || appGraph.signals.videoNodeOk,
+          graphThumbnailOk: signals.graphThumbnailOk || appGraph.signals.graphThumbnailOk,
+          postEmbedOk: signals.postEmbedOk,
+          ytDlpOk: signals.ytDlpOk,
+        };
+      }
+    }
   }
 
   const metadata: FacebookReelMetadata = merged ?? emptyReelMetadata(canonical);

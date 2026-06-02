@@ -752,6 +752,16 @@ export function ProfilePage() {
   const [composerTab, setComposerTab] = useState<"TEXT" | "PHOTO" | "VIDEO_LINK_VIDEO" | "VIDEO_LINK_WEB">("TEXT");
   const [composerErr, setComposerErr] = useState<string | null>(null);
   const [fbImportOpen, setFbImportOpen] = useState(false);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("fbImport") !== "1") return;
+    setFbImportOpen(true);
+    params.delete("fbImport");
+    const next = params.toString();
+    window.history.replaceState({}, "", next ? `${window.location.pathname}?${next}` : window.location.pathname);
+  }, []);
+
   const [avatarSize, setAvatarSize] = useState<ImageSizePreset>("large");
   const [avatarSizeVisible, setAvatarSizeVisible] = useState(false);
   const avatarSizeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);

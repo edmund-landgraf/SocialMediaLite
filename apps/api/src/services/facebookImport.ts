@@ -58,8 +58,31 @@ const POST_FIELDS = [
   "story",
   "created_time",
   "permalink_url",
+  "full_picture",
   "attachments{media,type,title,description,url,target{id},subattachments{media,type,title,description,url,target{id}}}",
 ].join(",");
+
+type GraphApiErrorBody = {
+  error?: { message?: string; code?: number; is_transient?: boolean };
+};
+
+export function formatFacebookGraphError(context: string, status: number, body: string): Error {
+  try {
+    const parsed = JSON.parse(body) as GraphApiErrorBody;
+    const err = parsed.error;
+    if (err?.code === 4) {
+      return new Error(
+        `${context}: Facebook API rate limit reached. Wait a few minutes before importing again.`,
+      );
+    }
+    if (err?.message) {
+      return new Error(`${context}: ${err.message}`);
+    }
+  } catch {
+    /* fall through */
+  }
+  return new Error(`${context} (${status}): ${body.slice(0, 300)}`);
+}
 
 /** Expanded fields when resolving reel embeds on a single post. */
 export const REEL_POST_FIELDS = [
@@ -193,18 +216,6 @@ function derivePreviewImageUrl(post: GraphPost): string | null {
   return null;
 }
 
-function emptyReelPreviewFields(): Pick<
-  FacebookPostPreview,
-  "previewReelUrl" | "previewLinkTitle" | "previewLinkDescription" | "previewReelPublic"
-> {
-  return {
-    previewReelUrl: null,
-    previewLinkTitle: null,
-    previewLinkDescription: null,
-    previewReelPublic: false,
-  };
-}
-
 function extractReelMetadataFromPost(post: GraphPost): FacebookReelMetadata | null {
   const reelUrl = findReelUrl(post);
   if (!reelUrl) return null;
@@ -238,21 +249,15 @@ async function enrichReelPreview(
 ): Promise<FacebookPostPreview> {
   if (preview.previewType !== "reel") return preview;
 
-  let post = graphPost;
-  try {
-    post = await fetchFacebookPostById(accessToken, graphPost.id, { expanded: true });
-  } catch {
-    /* list payload is enough to attempt sideload */
-  }
-
-  const reelUrl = findReelUrl(post);
+  const reelUrl = findReelUrl(graphPost);
   if (!reelUrl) return preview;
 
-  const videoId = findReelVideoId(post);
-  const fromPost = extractReelMetadataFromPost(post);
+  const videoId = findReelVideoId(graphPost);
+  const fromPost = extractReelMetadataFromPost(graphPost);
   const resolved = await resolveFacebookReel(accessToken, reelUrl, {
     videoIdHint: videoId,
     postEmbed: fromPost,
+    skipGraphSideload: true,
   });
 
   if (!resolved.isPublic) {
@@ -280,6 +285,7 @@ async function enrichReelPreview(
 }
 
 export function mapGraphPostToPreview(post: GraphPost): FacebookPostPreview {
+  const reelUrl = findReelUrl(post);
   return {
     id: post.id,
     title: deriveTitle(post),
@@ -288,32 +294,62 @@ export function mapGraphPostToPreview(post: GraphPost): FacebookPostPreview {
     permalinkUrl: post.permalink_url ?? null,
     previewType: derivePreviewType(post),
     previewImageUrl: derivePreviewImageUrl(post),
-    ...emptyReelPreviewFields(),
+    previewReelUrl: reelUrl,
+    previewLinkTitle: null,
+    previewLinkDescription: null,
+    previewReelPublic: false,
   };
 }
 
-export async function fetchFacebookPostsFromGraph(
+export async function fetchFacebookGraphPosts(
   accessToken: string,
   limit: number,
-): Promise<FacebookPostPreview[]> {
+): Promise<GraphPost[]> {
   const url = new URL(`https://graph.facebook.com/${graphVersion()}/me/posts`);
   url.searchParams.set("fields", POST_FIELDS);
   url.searchParams.set("limit", String(Math.min(Math.max(limit, 1), 50)));
   url.searchParams.set("access_token", accessToken);
 
   const res = await fetch(url);
+  const body = await res.text();
   if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`Facebook Graph API failed (${res.status}): ${body.slice(0, 300)}`);
+    throw formatFacebookGraphError("Facebook Graph API failed", res.status, body);
   }
 
-  const payload = (await res.json()) as { data?: GraphPost[]; error?: { message?: string } };
+  const payload = JSON.parse(body) as { data?: GraphPost[]; error?: { message?: string } };
   if (payload.error?.message) throw new Error(payload.error.message);
-  const graphPosts = payload.data ?? [];
-  const previews = graphPosts.map(mapGraphPostToPreview);
+  return payload.data ?? [];
+}
+
+export async function enrichFacebookPostPreviews(
+  accessToken: string,
+  graphPosts: GraphPost[],
+  previews: FacebookPostPreview[],
+): Promise<FacebookPostPreview[]> {
   return Promise.all(
     previews.map((preview, index) => enrichReelPreview(accessToken, preview, graphPosts[index]!)),
   );
+}
+
+export async function enrichFacebookPostPreviewById(
+  accessToken: string,
+  fbPostId: string,
+): Promise<FacebookPostPreview> {
+  const graphPost = await fetchFacebookPostById(accessToken, fbPostId, { expanded: true });
+  const preview = mapGraphPostToPreview(graphPost);
+  if (preview.previewType !== "reel") return preview;
+  return enrichReelPreview(accessToken, preview, graphPost);
+}
+
+export async function fetchFacebookPostsFromGraph(
+  accessToken: string,
+  limit: number,
+  opts?: { enrichReels?: boolean },
+): Promise<FacebookPostPreview[]> {
+  const graphPosts = await fetchFacebookGraphPosts(accessToken, limit);
+  const previews = graphPosts.map(mapGraphPostToPreview);
+  if (opts?.enrichReels !== true) return previews;
+  return enrichFacebookPostPreviews(accessToken, graphPosts, previews);
 }
 
 export function filterFacebookPostsByTitle(
@@ -339,11 +375,11 @@ export async function fetchFacebookPostById(
   url.searchParams.set("access_token", accessToken);
 
   const res = await fetch(url);
+  const body = await res.text();
   if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`Facebook post fetch failed (${res.status}): ${body.slice(0, 300)}`);
+    throw formatFacebookGraphError("Facebook post fetch failed", res.status, body);
   }
-  const payload = (await res.json()) as GraphPost & { error?: { message?: string } };
+  const payload = JSON.parse(body) as GraphPost & { error?: { message?: string } };
   if (payload.error?.message) throw new Error(payload.error.message);
   if (!payload.id) throw new Error("Facebook post payload missing id");
   return payload;
@@ -412,25 +448,6 @@ async function resolveReelThumbnailKey(args: {
     if (key) return key;
   }
 
-  const retryResolved = await resolveFacebookReel(args.accessToken, args.reelUrl, {
-    videoIdHint: findReelVideoId(args.graphPost),
-    postEmbed: extractReelMetadataFromPost(args.graphPost),
-  });
-  if (
-    retryResolved.isPublic &&
-    retryResolved.metadata.thumbnailUrl &&
-    !candidates.includes(retryResolved.metadata.thumbnailUrl)
-  ) {
-    return storeImageFromUrl({
-      imageUrl: retryResolved.metadata.thumbnailUrl,
-      authorId: args.authorId,
-      storage: args.storage,
-      keyPrefix: "fb-reel",
-      accessToken: args.accessToken,
-      heroCrop: true,
-    });
-  }
-
   return null;
 }
 
@@ -491,6 +508,7 @@ export async function importFacebookPostToWall(args: {
     const resolved = await resolveFacebookReel(args.accessToken, reelUrl, {
       videoIdHint: findReelVideoId(graphPost),
       postEmbed: fromPost,
+      skipGraphSideload: true,
     });
 
     let linkPreviewImageKey: string | null = null;

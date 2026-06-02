@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { Router } from "express";
+import { Router, type Request, type Response } from "express";
 import { Prisma } from "@prisma/client";
 import {
   FACEBOOK_STUB_AVATAR_URL,
@@ -17,7 +17,8 @@ import { loginStubTestUser } from "../services/stubTestUsers.js";
 import { serializeUser } from "../services/serializers.js";
 
 export const authRouter = Router();
-const FB_SCOPE = "public_profile,email,user_posts";
+const FB_LOGIN_SCOPE = "public_profile,email";
+const FB_IMPORT_SCOPE = "public_profile,email,user_posts";
 
 type FacebookConfig = {
   appId: string;
@@ -26,12 +27,19 @@ type FacebookConfig = {
   graphVersion: string;
 };
 
+function getFacebookRedirectUri(): string {
+  const explicit = process.env.FACEBOOK_REDIRECT_URI?.trim();
+  if (explicit) return explicit;
+  const webOrigin = process.env.WEB_ORIGIN?.trim() || "http://localhost:5174";
+  return `${webOrigin.replace(/\/+$/, "")}/api/auth/facebook/callback`;
+}
+
 function getFacebookConfig(): FacebookConfig | null {
   const appId = process.env.FACEBOOK_APP_ID?.trim() ?? "";
   const appSecret = process.env.FACEBOOK_APP_SECRET?.trim() ?? "";
-  const redirectUri = process.env.FACEBOOK_REDIRECT_URI?.trim() ?? "";
+  const redirectUri = getFacebookRedirectUri();
   const graphVersion = process.env.FACEBOOK_GRAPH_API_VERSION?.trim() || "v20.0";
-  if (!appId || !appSecret || !redirectUri) return null;
+  if (!appId || !appSecret) return null;
   return { appId, appSecret, redirectUri, graphVersion };
 }
 
@@ -40,6 +48,55 @@ function safeOAuthReturnTo(value: unknown): string | null {
   const trimmed = value.trim();
   if (!trimmed.startsWith("/") || trimmed.startsWith("//")) return null;
   return trimmed;
+}
+
+function parseFacebookGraphErrorBody(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  try {
+    const parsed = JSON.parse(trimmed) as {
+      error?: { message?: string; code?: number; type?: string; error_subcode?: number };
+    };
+    const err = parsed.error;
+    if (!err?.message) return trimmed.slice(0, 400);
+    const parts = [err.message];
+    if (err.code != null) parts.push(`code ${err.code}`);
+    if (err.error_subcode != null) parts.push(`subcode ${err.error_subcode}`);
+    if (err.type) parts.push(err.type);
+    return parts.join(" · ");
+  } catch {
+    return trimmed.slice(0, 400);
+  }
+}
+
+async function facebookGraphRequestError(res: Response, context: string): Promise<Error> {
+  const body = await res.text();
+  const detail = parseFacebookGraphErrorBody(body);
+  if (detail) return new Error(`${context}: ${detail}`);
+  return new Error(`${context} (HTTP ${res.status})`);
+}
+
+function formatOAuthFailure(err: unknown): string {
+  if (err instanceof Prisma.PrismaClientKnownRequestError) {
+    if (err.code === "P1001" || err.code === "P1003") {
+      return "Database unreachable — check DATABASE_URL and run npm run db:deploy.";
+    }
+    const meta = err.meta ? JSON.stringify(err.meta) : "";
+    return `Database error (${err.code})${meta ? `: ${meta}` : ""}`;
+  }
+  if (err instanceof Prisma.PrismaClientInitializationError) {
+    return "Database initialization failed — check DATABASE_URL in .env.";
+  }
+  if (err instanceof Error) return err.message;
+  return String(err);
+}
+
+function redirectLoginError(res: Response, webOrigin: string, errorCode: string, reason: string) {
+  const params = new URLSearchParams({
+    error: errorCode,
+    reason: reason.slice(0, 500),
+  });
+  res.redirect(`${webOrigin}/login?${params.toString()}`);
 }
 
 function toUsernameBase(name: string): string {
@@ -79,8 +136,22 @@ async function exchangeFacebookCodeForToken(config: FacebookConfig, code: string
   tokenUrl.searchParams.set("code", code);
 
   const res = await fetch(tokenUrl, { method: "GET" });
-  if (!res.ok) throw new Error(`Facebook token exchange failed (${res.status})`);
-  const data = (await res.json()) as { access_token?: string };
+  const body = await res.text();
+  if (!res.ok) {
+    throw await facebookGraphRequestError(
+      new Response(body, { status: res.status }),
+      "Facebook token exchange failed",
+    );
+  }
+  let data: { access_token?: string; error?: { message?: string } };
+  try {
+    data = JSON.parse(body) as { access_token?: string; error?: { message?: string } };
+  } catch {
+    throw new Error("Facebook token exchange returned invalid JSON");
+  }
+  if (data.error?.message) {
+    throw new Error(`Facebook token exchange failed: ${data.error.message}`);
+  }
   if (!data.access_token) throw new Error("Facebook token missing from response");
   return data.access_token;
 }
@@ -90,23 +161,46 @@ async function fetchFacebookMe(config: FacebookConfig, accessToken: string): Pro
   meUrl.searchParams.set("fields", "id,name,email,picture.type(large)");
   meUrl.searchParams.set("access_token", accessToken);
   const res = await fetch(meUrl, { method: "GET" });
-  if (!res.ok) throw new Error(`Facebook profile fetch failed (${res.status})`);
-  const me = (await res.json()) as FacebookMe;
+  const body = await res.text();
+  if (!res.ok) {
+    throw await facebookGraphRequestError(
+      new Response(body, { status: res.status }),
+      "Facebook profile fetch failed",
+    );
+  }
+  const me = JSON.parse(body) as FacebookMe & { error?: { message?: string } };
+  if (me.error?.message) {
+    throw new Error(`Facebook profile fetch failed: ${me.error.message}`);
+  }
   if (!me.id || !me.name) throw new Error("Facebook profile payload missing id or name");
   return me;
 }
 
 authRouter.get("/facebook/start", (req, res) => {
+  startFacebookOAuth(req, res, { scope: FB_LOGIN_SCOPE, storeImportToken: false });
+});
+
+/** Re-auth with user_posts for timeline import (separate from login scope). */
+authRouter.get("/facebook/import/start", (req, res) => {
+  startFacebookOAuth(req, res, { scope: FB_IMPORT_SCOPE, storeImportToken: true });
+});
+
+function startFacebookOAuth(
+  req: Request,
+  res: Response,
+  opts: { scope: string; storeImportToken: boolean },
+) {
   const config = getFacebookConfig();
   if (!config) {
     res.status(500).json({
       error:
-        "Facebook Login is not configured. Set FACEBOOK_APP_ID, FACEBOOK_APP_SECRET, and FACEBOOK_REDIRECT_URI.",
+        "Facebook Login is not configured. Set FACEBOOK_APP_ID and FACEBOOK_APP_SECRET.",
     });
     return;
   }
   const state = crypto.randomUUID();
   req.session.oauthState = state;
+  req.session.oauthStoreImportToken = opts.storeImportToken;
   const returnTo = safeOAuthReturnTo(req.query.returnTo);
   if (returnTo) {
     req.session.oauthReturnTo = returnTo;
@@ -119,28 +213,58 @@ authRouter.get("/facebook/start", (req, res) => {
   dialogUrl.searchParams.set("redirect_uri", config.redirectUri);
   dialogUrl.searchParams.set("state", state);
   dialogUrl.searchParams.set("response_type", "code");
-  dialogUrl.searchParams.set("scope", FB_SCOPE);
+  dialogUrl.searchParams.set("scope", opts.scope);
   res.redirect(dialogUrl.toString());
-});
+}
 
 authRouter.get("/facebook/callback", async (req, res) => {
   const webOrigin = process.env.WEB_ORIGIN ?? "http://localhost:5174";
   const config = getFacebookConfig();
   if (!config) {
-    res.redirect(`${webOrigin}/login?error=fb_not_configured`);
+    redirectLoginError(
+      res,
+      webOrigin,
+      "fb_not_configured",
+      "Facebook Login is not configured. Set FACEBOOK_APP_ID and FACEBOOK_APP_SECRET.",
+    );
     return;
   }
+
+  const fbOAuthError = typeof req.query.error === "string" ? req.query.error : "";
+  if (fbOAuthError) {
+    const description =
+      typeof req.query.error_description === "string"
+        ? req.query.error_description
+        : typeof req.query.error_reason === "string"
+          ? req.query.error_reason
+          : fbOAuthError;
+    redirectLoginError(res, webOrigin, "fb_login_failed", description);
+    return;
+  }
+
   const oauthState = req.session.oauthState;
   const returnedState = typeof req.query.state === "string" ? req.query.state : "";
   const code = typeof req.query.code === "string" ? req.query.code : "";
   if (!oauthState || oauthState !== returnedState || !code) {
-    res.redirect(`${webOrigin}/login?error=fb_state_or_code`);
+    const parts: string[] = [];
+    if (!code) parts.push("Facebook did not return an authorization code.");
+    if (!oauthState || oauthState !== returnedState) {
+      parts.push(
+        "Session state mismatch — your browser may not be sending cookies to the callback URL.",
+      );
+      parts.push(
+        `Expected callback: ${config.redirectUri}. Use the same host/port you use to open the app (local dev: http://localhost:5174/api/auth/facebook/callback).`,
+      );
+    }
+    redirectLoginError(res, webOrigin, "fb_state_or_code", parts.join(" "));
     return;
   }
 
   const returnTo = safeOAuthReturnTo(req.session.oauthReturnTo);
+  const storeImportToken = req.session.oauthStoreImportToken === true;
   delete req.session.oauthState;
   delete req.session.oauthReturnTo;
+  delete req.session.oauthStoreImportToken;
 
   try {
     const accessToken = await exchangeFacebookCodeForToken(config, code);
@@ -178,7 +302,11 @@ authRouter.get("/facebook/callback", async (req, res) => {
     await ensureAiFriendshipForUser(user.id);
     delete req.session.offlineTestUser;
     req.session.userId = user.id;
-    req.session.facebookAccessToken = accessToken;
+    if (storeImportToken) {
+      req.session.facebookAccessToken = accessToken;
+    } else {
+      delete req.session.facebookAccessToken;
+    }
     if (returnTo) {
       res.redirect(`${webOrigin}${returnTo}`);
       return;
@@ -186,7 +314,7 @@ authRouter.get("/facebook/callback", async (req, res) => {
     res.redirect(`${webOrigin}/${encodeURIComponent(user.username)}`);
   } catch (err) {
     console.error("facebook callback failed:", err);
-    res.redirect(`${webOrigin}/login?error=fb_login_failed`);
+    redirectLoginError(res, webOrigin, "fb_login_failed", formatOAuthFailure(err));
   }
 });
 

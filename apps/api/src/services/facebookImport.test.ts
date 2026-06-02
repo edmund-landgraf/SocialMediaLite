@@ -1,7 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { filterFacebookPostsByTitle, mapGraphPostToPreview } from "./facebookImport.js";
+import {
+  filterFacebookPostsByTitle,
+  formatFacebookGraphError,
+  mapGraphPostToPreview,
+} from "./facebookImport.js";
 
 describe("facebookImport", () => {
+  it("formats Facebook rate-limit errors", () => {
+    const err = formatFacebookGraphError(
+      "Facebook post fetch failed",
+      403,
+      JSON.stringify({ error: { message: "(#4) Application request limit reached", code: 4, is_transient: true } }),
+    );
+    expect(err.message).toContain("rate limit");
+  });
+
   it("maps a text post to title and description", () => {
     const preview = mapGraphPostToPreview({
       id: "123_456",
