@@ -14,6 +14,8 @@ Both features use the same **hybrid pattern**: Ollama parses natural language �
 
 | Doc | Description |
 |---|---|
+| [plan/ai-profile-summaries.plan.md](plan/ai-profile-summaries.plan.md) | **AI profile summaries** — “Things about me” (then friends) via structured activity + LLM |
+| [OLLAMA_VPS_SETUP.md](OLLAMA_VPS_SETUP.md) | Install Ollama on Linux VPS, hardware sizing, env vars, security |
 | [AI_ADD_KNOWLEDGE.md](AI_ADD_KNOWLEDGE.md) | **AI Add** on own posts → profile knowledge base + hybrid profile chatbot |
 | [FRIEND_SELECT_CHAT.md](FRIEND_SELECT_CHAT.md) | Split-pane **friend select chat** — describe filters left, matching friends right |
 | [FB_TO_SML_SHARE_LINK.md](FB_TO_SML_SHARE_LINK.md) | **FB → SML share link** — public `/join/{token}` page with OG metadata for Facebook crawlers |

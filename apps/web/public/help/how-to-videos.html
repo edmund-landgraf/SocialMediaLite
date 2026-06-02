@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>How to videos — SocialMediaLite</title>
+    <link rel="stylesheet" href="help.css" />
+  </head>
+  <body>
+    <nav class="site-nav" aria-label="Help site">
+      <a class="brand" href="index.html">SocialMediaLite Help</a>
+      <div class="nav-group">
+        <a href="index.html">Home</a>
+        <a href="first-time-user.html">First-time user</a>
+        <a href="setup-server.html">Setup server</a>
+        <a href="how-to-videos.html" aria-current="page">How to videos</a>
+        <a href="/login">Sign in</a>
+        <a href="/blog">Blog</a>
+        <a href="/feedback">Feedback</a>
+      </div>
+    </nav>
+
+    <div class="page-shell page-shell-wide">
+      <header class="page-header">
+        <span class="badge">Media</span>
+        <h1>How to videos</h1>
+        <p class="lead">
+          Browse local help videos from <code>apps/web/public/help/videos/</code>. Select a filename on the
+          left to play it on the right.
+        </p>
+      </header>
+
+      <section class="video-browser" aria-label="How to videos browser">
+        <aside class="video-list-pane">
+          <h2 class="video-pane-title">Video files</h2>
+          <div id="video-list-status" class="video-list-status">Loading videos…</div>
+          <ul id="video-file-list" class="video-file-list" aria-label="Video file list"></ul>
+        </aside>
+
+        <section class="video-player-pane">
+          <h2 class="video-pane-title">Player</h2>
+          <div id="video-player-empty" class="video-player-empty">Pick a video from the left pane.</div>
+          <video id="help-video-player" controls preload="metadata" class="help-video-player" hidden>
+            Sorry, your browser does not support MP4 playback.
+          </video>
+          <div id="video-player-caption" class="video-player-caption" hidden></div>
+        </section>
+      </section>
+
+      <footer class="site-footer">
+        <p>
+          Add new files to <code>apps/web/public/help/videos/</code> (MP4). They appear here automatically.
+          · <a class="inline" href="index.html">Help home</a>
+        </p>
+      </footer>
+    </div>
+
+    <script>
+      (() => {
+        const statusEl = document.getElementById("video-list-status");
+        const listEl = document.getElementById("video-file-list");
+        const player = document.getElementById("help-video-player");
+        const emptyEl = document.getElementById("video-player-empty");
+        const captionEl = document.getElementById("video-player-caption");
+
+        function clearSelection() {
+          for (const button of listEl.querySelectorAll("button")) {
+            button.removeAttribute("aria-current");
+          }
+        }
+
+        function selectVideo(file, buttonEl) {
+          clearSelection();
+          buttonEl.setAttribute("aria-current", "true");
+          player.src = file.url;
+          player.hidden = false;
+          captionEl.hidden = false;
+          captionEl.textContent = file.name;
+          emptyEl.hidden = true;
+          player.load();
+        }
+
+        async function loadVideos() {
+          try {
+            const res = await fetch("/api/help/videos", { credentials: "same-origin" });
+            if (!res.ok) throw new Error(`Failed loading video list (${res.status})`);
+            const payload = await res.json();
+            const files = Array.isArray(payload.files) ? payload.files : [];
+            listEl.innerHTML = "";
+
+            if (!files.length) {
+              statusEl.textContent = "No MP4 files found in help/videos yet.";
+              return;
+            }
+
+            statusEl.textContent = `${files.length} file${files.length === 1 ? "" : "s"} found`;
+            files.forEach((file, idx) => {
+              const li = document.createElement("li");
+              const btn = document.createElement("button");
+              btn.type = "button";
+              btn.className = "video-file-button";
+              btn.textContent = file.name;
+              btn.addEventListener("click", () => selectVideo(file, btn));
+              li.appendChild(btn);
+              listEl.appendChild(li);
+              if (idx === 0) selectVideo(file, btn);
+            });
+          } catch (err) {
+            statusEl.textContent = err instanceof Error ? err.message : "Failed loading videos.";
+          }
+        }
+
+        void loadVideos();
+      })();
+    </script>
+  </body>
+</html>

@@ -153,7 +153,7 @@ export function LoginPage() {
           </CardHeader>
           <CardContent className="space-y-3">
             <Button asChild variant="outline" className="w-full">
-              <a href="/help/first-time-user.html">How to use (first time)</a>
+              <a href="http://localhost:5174/help/index.html">First Time Guide</a>
             </Button>
             <Button asChild variant="outline" className="w-full">
               <a href="/help/setup-server.html">Setup on your server</a>

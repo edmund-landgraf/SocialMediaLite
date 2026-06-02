@@ -1,4 +1,4 @@
-import { Loader2, X } from "lucide-react";
+import { ExternalLink, Loader2, Play, X } from "lucide-react";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type CSSProperties } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
@@ -15,6 +15,7 @@ import { PostReactionPicker } from "@/components/PostReactionPicker";
 import { CommentThread } from "@/components/CommentThread";
 import { LinkifiedText } from "@/components/LinkifiedText";
 import { BannerPositionEditor, bannerObjectPositionStyle } from "@/components/BannerPositionEditor";
+import { AiSummaryModal } from "@/components/AiSummaryModal";
 import { FacebookImportModal } from "@/components/FacebookImportModal";
 import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -22,6 +23,17 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { ApiError, apiFetch, apiJson } from "@/lib/api";
 import type { FriendsFeedBucket, FriendsFeedMeta, PostDTO, ProfileMeta, PublicUser } from "@/types";
+
+declare global {
+  interface Window {
+    Mixcloud?: {
+      PlayerWidget: (iframe: HTMLIFrameElement) => {
+        ready: Promise<void>;
+        play: () => void;
+      };
+    };
+  }
+}
 
 type MeResp = {
   user: PublicUser & { bannerUrl?: string | null };
@@ -79,6 +91,67 @@ function linkDisplayHost(url: string): string {
   }
 }
 
+function isAudioOnlyLink(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.toLowerCase();
+    const path = parsed.pathname.toLowerCase();
+    if (host.includes("soundcloud.com") || host === "snd.sc") return true;
+    if (host.includes("mixcloud.com")) return true;
+    return /\.(mp3|m4a|ogg|wav|flac|aac)$/i.test(path);
+  } catch {
+    return false;
+  }
+}
+
+function soundCloudEmbedUrl(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.toLowerCase();
+    if (!(host.includes("soundcloud.com") || host === "snd.sc")) return null;
+    return `https://w.soundcloud.com/player/?url=${encodeURIComponent(url)}&auto_play=true`;
+  } catch {
+    return null;
+  }
+}
+
+function mixcloudEmbedUrl(url: string, autoplay: boolean): string | null {
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.toLowerCase();
+    if (!host.includes("mixcloud.com")) return null;
+    const path = parsed.pathname.endsWith("/") ? parsed.pathname : `${parsed.pathname}/`;
+    return `https://www.mixcloud.com/widget/iframe/?hide_cover=1&mini=1&light=1&autoplay=${autoplay ? 1 : 0}&feed=${encodeURIComponent(path)}`;
+  } catch {
+    return null;
+  }
+}
+
+let mixcloudApiReadyPromise: Promise<void> | null = null;
+function ensureMixcloudWidgetApi(): Promise<void> {
+  if (window.Mixcloud?.PlayerWidget) return Promise.resolve();
+  if (mixcloudApiReadyPromise) return mixcloudApiReadyPromise;
+
+  mixcloudApiReadyPromise = new Promise((resolve, reject) => {
+    const existing = document.querySelector<HTMLScriptElement>('script[data-mixcloud-widget-api="1"]');
+    if (existing) {
+      existing.addEventListener("load", () => resolve(), { once: true });
+      existing.addEventListener("error", () => reject(new Error("Failed loading Mixcloud widget API")), { once: true });
+      return;
+    }
+
+    const script = document.createElement("script");
+    script.src = "https://widget.mixcloud.com/media/js/widgetApi.js";
+    script.async = true;
+    script.dataset.mixcloudWidgetApi = "1";
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error("Failed loading Mixcloud widget API"));
+    document.head.appendChild(script);
+  });
+
+  return mixcloudApiReadyPromise;
+}
+
 /** Hover popup cap — longer than the 2-line preview; aligned with API link description max. */
 const LINK_DESCRIPTION_POPUP_MAX = 840;
 
@@ -118,10 +191,43 @@ function SharedLinkEmbed(props: {
   compact?: boolean;
 }) {
   const [heroBroken, setHeroBroken] = useState(false);
+  const [showPlayer, setShowPlayer] = useState(false);
+  const [playerSession, setPlayerSession] = useState(0);
+  const mixcloudIframeRef = useRef<HTMLIFrameElement | null>(null);
+  const audioOnly = isAudioOnlyLink(props.href);
+  const soundCloudPlayer = audioOnly ? soundCloudEmbedUrl(props.href) : null;
+  const mixcloudPlayer = audioOnly ? mixcloudEmbedUrl(props.href, showPlayer) : null;
 
   useEffect(() => {
     setHeroBroken(false);
   }, [props.heroUrl]);
+
+  useEffect(() => {
+    if (!showPlayer || !mixcloudPlayer || !mixcloudIframeRef.current) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        await ensureMixcloudWidgetApi();
+        if (cancelled || !mixcloudIframeRef.current || !window.Mixcloud?.PlayerWidget) return;
+        const widget = window.Mixcloud.PlayerWidget(mixcloudIframeRef.current);
+        await widget.ready;
+        if (cancelled) return;
+        widget.play();
+        // Mixcloud widget autoplay is inconsistent in some browsers; quick retries improve reliability.
+        setTimeout(() => {
+          if (!cancelled) widget.play();
+        }, 250);
+        setTimeout(() => {
+          if (!cancelled) widget.play();
+        }, 900);
+      } catch {
+        // Ignore widget API failures; user can still press play inside iframe.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [showPlayer, mixcloudPlayer, playerSession]);
 
   const pad = props.compact ? "p-2.5" : "p-3";
 
@@ -178,6 +284,56 @@ function SharedLinkEmbed(props: {
           ) : null}
         </div>
       </div>
+      {audioOnly ? (
+        <div className="flex flex-wrap items-center gap-2 border-t border-zinc-800/80 px-3 py-2">
+          <Button asChild variant="secondary" size="sm">
+            <a href={props.href} target="_blank" rel="noopener noreferrer">
+              <ExternalLink className="size-3.5" />
+              Open link
+            </a>
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() =>
+              setShowPlayer((v) => {
+                const next = !v;
+                if (next) setPlayerSession((s) => s + 1);
+                return next;
+              })
+            }
+          >
+            <Play className="size-3.5" />
+            {showPlayer ? "Hide player" : "Play"}
+          </Button>
+        </div>
+      ) : null}
+      {audioOnly && showPlayer ? (
+        <div className="border-t border-zinc-800/80 bg-zinc-900/40 p-3">
+          {soundCloudPlayer ? (
+            <iframe
+              title="SoundCloud player"
+              src={soundCloudPlayer}
+              className="h-[166px] w-full rounded border border-zinc-800 bg-zinc-950"
+              allow="autoplay"
+            />
+          ) : mixcloudPlayer ? (
+            <iframe
+              key={`mixcloud-${playerSession}`}
+              ref={mixcloudIframeRef}
+              title="Mixcloud player"
+              src={mixcloudPlayer}
+              className="h-[120px] w-full rounded border border-zinc-800 bg-zinc-950"
+              allow="autoplay; encrypted-media"
+            />
+          ) : (
+            <audio controls preload="none" src={props.href} className="w-full">
+              Your browser does not support audio playback.
+            </audio>
+          )}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -762,6 +918,7 @@ export function ProfilePage() {
   const [composerTab, setComposerTab] = useState<"TEXT" | "PHOTO" | "VIDEO_LINK_VIDEO" | "VIDEO_LINK_WEB">("TEXT");
   const [composerErr, setComposerErr] = useState<string | null>(null);
   const [fbImportOpen, setFbImportOpen] = useState(false);
+  const [aiSummaryOpen, setAiSummaryOpen] = useState(false);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -1157,6 +1314,16 @@ export function ProfilePage() {
             <Button asChild variant="secondary" size="sm">
               <Link to="/friends">Browse users</Link>
             </Button>
+            {profile?.meta.isSelf ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setAiSummaryOpen(true)}
+              >
+                AI Summary
+              </Button>
+            ) : null}
             <Button variant="outline" size="sm" title="later" disabled>
               Add to story
             </Button>
@@ -1760,6 +1927,17 @@ export function ProfilePage() {
           />
         </div>
       ) : null}
+
+      <AiSummaryModal
+        open={aiSummaryOpen}
+        username={profile.user.username}
+        onClose={() => setAiSummaryOpen(false)}
+        onPosted={async () => {
+          setFeedTab("my");
+          await refreshPosts();
+          document.getElementById("profile-feed")?.scrollIntoView({ behavior: "smooth", block: "start" });
+        }}
+      />
 
       <FacebookImportModal
         open={fbImportOpen}

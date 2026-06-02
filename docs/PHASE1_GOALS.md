@@ -2,6 +2,8 @@
 
 Full implementation plan (checklist + architecture): [plan/socialmedialite_phase_1_ee37fff4.plan.md](plan/socialmedialite_phase_1_ee37fff4.plan.md).
 
+Planned **AI profile summaries** (not built yet): [plan/ai-profile-summaries.plan.md](plan/ai-profile-summaries.plan.md). **Ollama on VPS:** [OLLAMA_VPS_SETUP.md](OLLAMA_VPS_SETUP.md).
+
 ## Core MVP
 
 - Stub Facebook OAuth / dev identity → personal profile pages (no global feed).
@@ -19,6 +21,7 @@ Documented separately; **not yet implemented**. See [README.md](README.md).
 
 | Feature | Doc | Summary |
 |---|---|---|
+| AI profile summaries | [plan/ai-profile-summaries.plan.md](plan/ai-profile-summaries.plan.md), [OLLAMA_VPS_SETUP.md](OLLAMA_VPS_SETUP.md) | “Things about me” narrative from posts; Ollama on VPS |
 | AI Add + profile chatbot | [AI_ADD_KNOWLEDGE.md](AI_ADD_KNOWLEDGE.md) | Author adds own post + comments to a KB; hybrid chat answers wall/KB questions |
 | Friend select chat | [FRIEND_SELECT_CHAT.md](FRIEND_SELECT_CHAT.md) | Split-pane NL friend filter over accepted friends |
 | FB → SML share link | [FB_TO_SML_SHARE_LINK.md](FB_TO_SML_SHARE_LINK.md) | Public join URL with OG tags for Facebook profile links |

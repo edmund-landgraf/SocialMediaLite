@@ -12,6 +12,8 @@ import { linkPreviewRouter } from "./routes/linkPreview.js";
 import { blogRouter } from "./routes/blog.js";
 import { feedbackRouter } from "./routes/feedback.js";
 import { facebookImportRouter } from "./routes/facebookImport.js";
+import { aiSummaryRouter } from "./routes/aiSummary.js";
+import { helpVideosRouter } from "./routes/helpVideos.js";
 import {
   createStorageProviderFromEnv,
   getResolvedLocalStorageRoot,
@@ -73,8 +75,10 @@ export function createApp() {
   /** Public blog + feedback reads — register before routers with global requireAuth on /api. */
   app.use("/api", blogRouter);
   app.use("/api", feedbackRouter);
+  app.use("/api", helpVideosRouter);
   app.use("/api", usersRouter);
   app.use("/api", facebookImportRouter);
+  app.use("/api", aiSummaryRouter);
   app.use("/api/friends", friendsRouter);
   app.use("/api", postsRouter);
   app.use("/api", linkPreviewRouter);

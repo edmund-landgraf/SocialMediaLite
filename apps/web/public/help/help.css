@@ -92,6 +92,10 @@ body {
   padding: 2rem 1.5rem 3.5rem;
 }
 
+.page-shell-wide {
+  max-width: 72rem;
+}
+
 .page-header {
   margin-bottom: 2rem;
   padding: 1.5rem 1.35rem;
@@ -312,4 +316,98 @@ pre.code-block code {
   border-radius: 999px;
   padding: 0.28em 0.75em;
   margin-bottom: 0.75rem;
+}
+
+.video-browser {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(220px, 320px) minmax(0, 1fr);
+  margin-top: 1.25rem;
+}
+
+.video-list-pane,
+.video-player-pane {
+  border: 1px solid var(--border-strong);
+  border-radius: 0.75rem;
+  background: var(--bg-card);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+  min-height: 430px;
+}
+
+.video-pane-title {
+  margin: 0;
+  padding: 0.9rem 1rem;
+  font-size: 1rem;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.video-list-status {
+  padding: 0.75rem 1rem 0.4rem;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.video-file-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 0.5rem 0.75rem;
+  max-height: 360px;
+  overflow: auto;
+}
+
+.video-file-list li {
+  margin: 0;
+}
+
+.video-file-button {
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: var(--text-body);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 0.45rem;
+  padding: 0.55rem 0.6rem;
+  cursor: pointer;
+}
+
+.video-file-button:hover {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+}
+
+.video-file-button[aria-current="true"] {
+  background: var(--border-subtle);
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.video-player-empty {
+  color: var(--text-muted);
+  padding: 1rem;
+}
+
+.help-video-player {
+  width: calc(100% - 2rem);
+  margin: 0.6rem 1rem 0.25rem;
+  border-radius: 0.45rem;
+  border: 1px solid var(--border-subtle);
+  background: #000;
+  min-height: 330px;
+}
+
+.video-player-caption {
+  padding: 0 1rem 1rem;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+@media (max-width: 900px) {
+  .video-browser {
+    grid-template-columns: 1fr;
+  }
+
+  .video-file-list {
+    max-height: 220px;
+  }
 }
