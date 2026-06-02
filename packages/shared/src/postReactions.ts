@@ -3,9 +3,10 @@ import { z } from "zod";
 /** Modular reaction catalog — add or edit entries here to change the picker. */
 export const POST_REACTIONS = [
   { id: "like", label: "Like", emoji: "👍" },
+  { id: "love", label: "Love", emoji: "❤️" },
+  { id: "care", label: "Care", emoji: "🤗" },
   { id: "agree", label: "Agree", emoji: "✅" },
   { id: "disagree", label: "Disagree", emoji: "👎" },
-  { id: "care", label: "Care", emoji: "💗" },
   { id: "celebrate", label: "Celebrate", emoji: "🎉" },
   { id: "funny", label: "Funny", emoji: "😂" },
 ] as const;

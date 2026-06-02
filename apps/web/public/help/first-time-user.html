@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>First-time user — SocialMediaLite</title>
+    <link rel="stylesheet" href="help.css" />
+  </head>
+  <body>
+    <nav class="site-nav" aria-label="Help site">
+      <a class="brand" href="index.html">SocialMediaLite Help</a>
+      <div class="nav-group">
+        <a href="index.html">Home</a>
+        <a href="first-time-user.html" aria-current="page">First-time user</a>
+        <a href="setup-server.html">Setup server</a>
+        <a href="/login">Sign in</a>
+        <a href="/blog">Blog</a>
+        <a href="/feedback">Feedback</a>
+      </div>
+    </nav>
+
+    <div class="page-shell">
+      <header class="page-header">
+        <span class="badge">New users</span>
+        <h1>How to use as a first-time user</h1>
+        <p class="lead">
+          SocialMediaLite is like a simplified Facebook <strong>profile page</strong> — not a full social
+          network feed. This guide assumes someone already hosts the app; you only need a browser.
+        </p>
+      </header>
+
+      <h2>1. Open the app and sign in</h2>
+      <ol>
+        <li>Go to the <a class="inline" href="/login">login page</a>.</li>
+        <li>
+          <strong>Continue with Facebook test</strong> — quick demo as <code>@testuser</code> (good for trying
+          the UI on a dev server).
+        </li>
+        <li>
+          <strong>Continue with Facebook</strong> — real Facebook sign-in when the host has configured a Meta
+          app.
+        </li>
+        <li>Other <strong>stub test users</strong> are listed on the login card for multi-user demos.</li>
+      </ol>
+      <p>After sign-in you land on <strong>your profile</strong> at <code>/{your-username}</code>.</p>
+
+      <h2>2. Your profile page</h2>
+      <ul>
+        <li><strong>Banner</strong> — upload a wide image on your own page (when you are the owner).</li>
+        <li><strong>Profile photo</strong> — stub “FB frame” in Phase 1; real photos come from Facebook login or uploads elsewhere.</li>
+        <li><strong>Timeline</strong> — your posts, newest first; one post can be <strong>pinned</strong> at the top.</li>
+        <li><strong>Friends list</strong> — sidebar links to friends’ pages (no global feed).</li>
+      </ul>
+
+      <h2>3. Create a post</h2>
+      <p>Use the composer on your page (or a friend’s page after you are friends):</p>
+      <ul>
+        <li><strong>Text</strong> — plain posts; you can style background, text color, and font size.</li>
+        <li><strong>Photo</strong> — upload an image (compressed to about 500KB); optional caption.</li>
+        <li><strong>Video link / Web link</strong> — paste a URL; the app builds a preview card (title, description, image when available).</li>
+      </ul>
+
+      <h2>4. Friends</h2>
+      <ol>
+        <li>Visit someone’s page at <code>/{username}</code>.</li>
+        <li>Send a <strong>friend request</strong>; they accept from their page.</li>
+        <li>Once accepted, you can see their full timeline and post on their page (like a Facebook wall).</li>
+        <li>Non-friends see a restricted view until the friendship is accepted.</li>
+      </ol>
+
+      <h2>5. Comments and reactions</h2>
+      <ul>
+        <li><strong>Comment</strong> on any post you can see — thread opens under the post.</li>
+        <li><strong>Reaction</strong> — pick Like, Love, Care, Agree, Disagree, Celebrate, or Funny from the picker.</li>
+        <li><strong>Disagree</strong> can optionally include a short explanation.</li>
+      </ul>
+
+      <h2>6. Friends feed (your page only)</h2>
+      <p>On <strong>your own profile</strong>, switch to the <strong>Friends</strong> tab to review posts friends shared to your feed:</p>
+      <ul>
+        <li><strong>Unread</strong> — new items to read, save, or discard.</li>
+        <li><strong>Read / Saved / Discarded</strong> — buckets to organize what you have seen.</li>
+        <li>When you create a post, you can choose to <strong>share it to friends’ feeds</strong>.</li>
+      </ul>
+
+      <h2>7. Import from Facebook (optional)</h2>
+      <div class="panel">
+        <p>
+          On your profile, <strong>Import from Facebook</strong> copies posts from your Facebook timeline into
+          SocialMediaLite. Login alone does not grant this — the first time you import you may need to
+          <strong>Connect Facebook for import</strong> (<code>user_posts</code> permission). If you already
+          connected in this browser session, the app reuses your token.
+        </p>
+      </div>
+
+      <h2>8. Other pages</h2>
+      <ul>
+        <li><a class="inline" href="/blog">Blog</a> — release-style notes from the project repo.</li>
+        <li><a class="inline" href="/feedback">Feedback</a> — suggestions and discussion (pick a display identity).</li>
+      </ul>
+
+      <h2>Quick tips</h2>
+      <ul>
+        <li>URLs in photo captions become <strong>clickable links</strong>.</li>
+        <li>Pin only <strong>one</strong> post on your page at a time.</li>
+        <li>Use <strong>Logout</strong> from your profile when you are done on a shared computer.</li>
+      </ul>
+
+      <footer class="site-footer">
+        <p>
+          Hosting your own copy?
+          <a class="inline" href="setup-server.html">Setup on your own server</a>
+          · <a class="inline" href="index.html">Help home</a>
+        </p>
+      </footer>
+    </div>
+  </body>
+</html>

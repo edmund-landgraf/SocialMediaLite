@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Setup on your own server — SocialMediaLite</title>
+    <link rel="stylesheet" href="help.css" />
+  </head>
+  <body>
+    <nav class="site-nav" aria-label="Help site">
+      <a class="brand" href="index.html">SocialMediaLite Help</a>
+      <div class="nav-group">
+        <a href="index.html">Home</a>
+        <a href="first-time-user.html">First-time user</a>
+        <a href="setup-server.html" aria-current="page">Setup server</a>
+        <a href="/login">Sign in</a>
+        <a href="/blog">Blog</a>
+        <a href="/feedback">Feedback</a>
+      </div>
+    </nav>
+
+    <div class="page-shell">
+      <header class="page-header">
+        <span class="badge">Hosts &amp; developers</span>
+        <h1>How to setup on your own server</h1>
+        <p class="lead">
+          Run SocialMediaLite from the monorepo on your laptop, homelab, or VPS. These steps assume the
+          repository is cloned and you work from the <strong>repo root</strong>.
+        </p>
+      </header>
+
+      <h2>1. Prerequisites</h2>
+      <ul>
+        <li><strong>Node.js</strong> 20 or newer and npm</li>
+        <li><strong>PostgreSQL</strong> 14+ (Docker, WSL, or native install)</li>
+        <li>Git, if you are cloning the repository</li>
+        <li>Optional: Meta <strong>Facebook app</strong> for real Facebook login and timeline import</li>
+      </ul>
+
+      <h2>2. Get the code</h2>
+      <pre class="code-block"><code>git clone &lt;your-repo-url&gt; SocialMediaLite
+cd SocialMediaLite</code></pre>
+
+      <h2>3. Database</h2>
+      <p>With Docker Compose from the repo root:</p>
+      <pre class="code-block"><code>docker compose up -d</code></pre>
+      <p>
+        Or use your own Postgres instance. Create a database and user, then note the connection string for
+        <code>DATABASE_URL</code>.
+      </p>
+
+      <h2>4. Environment file</h2>
+      <ol>
+        <li>Copy <code>.env.example</code> to <code>.env</code> at the repo root.</li>
+        <li>
+          <strong>DATABASE_URL</strong> — e.g.
+          <code>postgresql://USER:PASSWORD@localhost:5432/socialmedialite?schema=public</code>
+        </li>
+        <li><strong>SESSION_SECRET</strong> — long random string (required in production).</li>
+        <li>
+          <strong>WEB_ORIGIN</strong> — exact browser origin users will use (dev:
+          <code>http://localhost:5174</code> if Vite moved off 5173).
+        </li>
+        <li><strong>API_PORT</strong> — default <code>3001</code>.</li>
+        <li>
+          <strong>STORAGE_PROVIDER=local</strong> and <strong>STORAGE_LOCAL_ROOT</strong> for uploaded images
+          (see <code>.env.example</code>).
+        </li>
+      </ol>
+
+      <div class="panel">
+        <h3 style="margin-top: 0">Facebook Login (optional)</h3>
+        <p>
+          Set <code>FACEBOOK_APP_ID</code>, <code>FACEBOOK_APP_SECRET</code>, and
+          <code>FACEBOOK_REDIRECT_URI</code>. The redirect must be your public web origin plus
+          <code>/api/auth/facebook/callback</code> — not the API port alone.
+        </p>
+      </div>
+
+      <h2>5. Install dependencies</h2>
+      <pre class="code-block"><code>npm install</code></pre>
+      <p>
+        <code>postinstall</code> builds <code>@socialmedialite/shared</code> and runs
+        <code>prisma generate</code>.
+      </p>
+
+      <h2>6. Apply database migrations</h2>
+      <pre class="code-block"><code>npm run db:deploy</code></pre>
+      <p>Run again after pulling changes that include new Prisma migrations.</p>
+
+      <h2>7. Development (local)</h2>
+      <p>API and web together:</p>
+      <pre class="code-block"><code>npm run dev</code></pre>
+      <p>Or separate terminals:</p>
+      <pre class="code-block"><code>npm run dev -w apps/api
+npm run dev -w apps/web</code></pre>
+      <ul>
+        <li>Web — URL printed by Vite (often port <strong>5173</strong> or <strong>5174</strong>)</li>
+        <li>API — <code>http://localhost:3001</code>; Vite proxies <code>/api</code> and <code>/assets</code></li>
+      </ul>
+
+      <h2>8. Production build (overview)</h2>
+      <div class="panel panel-muted">
+        <p>
+          Production typically uses <code>npm run build</code>, serves the web <code>dist/</code> with nginx,
+          and runs the API with PM2. See <code>scripts/deploy-prod.sh</code> and
+          <code>ecosystem.config.cjs</code> in the repo for your environment. Set
+          <code>NODE_ENV=production</code>, a strong <code>SESSION_SECRET</code>, and
+          <code>WEB_ORIGIN</code> to your HTTPS site URL.
+        </p>
+      </div>
+
+      <h2>Troubleshooting</h2>
+      <ul>
+        <li>
+          <strong>P2022 / column does not exist</strong> — run <code>npm run db:deploy</code>; restart the API.
+        </li>
+        <li>
+          <strong>Cannot find module @socialmedialite/shared</strong> —
+          <code>npm run build -w @socialmedialite/shared</code>
+        </li>
+        <li>
+          <strong>Facebook OAuth redirect mismatch</strong> — <code>FACEBOOK_REDIRECT_URI</code> must match
+          the host and port in the browser bar.
+        </li>
+        <li><strong>Port already in use</strong> — stop the old Node/Vite process or use the new port Vite prints.</li>
+        <li><strong>ECONNREFUSED to Postgres</strong> — confirm Postgres is running and <code>DATABASE_URL</code> is correct.</li>
+      </ul>
+
+      <footer class="site-footer">
+        <p>
+          Ready to use the app?
+          <a class="inline" href="first-time-user.html">First-time user guide</a>
+          · <a class="inline" href="index.html">Help home</a>
+        </p>
+      </footer>
+    </div>
+  </body>
+</html>

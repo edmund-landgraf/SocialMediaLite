@@ -1,0 +1,315 @@
+:root {
+  color-scheme: dark;
+  /* Surfaces — wider steps between layers */
+  --bg-page: #111114;
+  --bg-elevated: #1c1c21;
+  --bg-card: #26262d;
+  --bg-inset: #0a0a0c;
+  --border-subtle: #3f3f46;
+  --border-strong: #71717a;
+
+  /* Text — high contrast on dark surfaces */
+  --text-primary: #f4f4f5;
+  --text-body: #d4d4d8;
+  --text-muted: #a1a1aa;
+  --text-faint: #8b8b96;
+
+  /* Links — bright, never confused with body text */
+  --link: #7dd3fc;
+  --link-hover: #e0f2fe;
+  --link-underline: #38bdf8;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 16px;
+  line-height: 1.7;
+  color: var(--text-body);
+  background: var(--bg-page);
+}
+
+.site-nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 1rem;
+  padding: 0.85rem 1.5rem;
+  border-bottom: 1px solid var(--border-strong);
+  background: var(--bg-card);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.45);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.site-nav .brand {
+  font-weight: 700;
+  font-size: 0.95rem;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+  text-decoration: none;
+  margin-right: auto;
+  padding: 0.35rem 0;
+}
+
+.site-nav .nav-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.15rem 0.85rem;
+}
+
+.site-nav a {
+  color: var(--text-body);
+  text-decoration: none;
+  font-size: 0.875rem;
+  font-weight: 600;
+  padding: 0.4rem 0.55rem;
+  border-radius: 0.3rem;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.site-nav a:hover {
+  color: var(--text-primary);
+  background: var(--bg-elevated);
+}
+
+.site-nav a[aria-current="page"] {
+  color: var(--text-primary);
+  background: var(--border-subtle);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+
+.page-shell {
+  max-width: 44rem;
+  margin: 0 auto;
+  padding: 2rem 1.5rem 3.5rem;
+}
+
+.page-header {
+  margin-bottom: 2rem;
+  padding: 1.5rem 1.35rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 0.75rem;
+  background: var(--bg-elevated);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.06) inset;
+}
+
+h1 {
+  font-size: 1.85rem;
+  font-weight: 700;
+  margin: 0 0 0.65rem;
+  letter-spacing: -0.03em;
+  color: var(--text-primary);
+}
+
+.lead {
+  color: var(--text-body);
+  margin: 0;
+  font-size: 1.0625rem;
+  max-width: 38rem;
+}
+
+h2 {
+  font-size: 1.2rem;
+  margin: 2.25rem 0 0.75rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+  padding-bottom: 0.35rem;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+h3 {
+  font-size: 1rem;
+  margin: 1.25rem 0 0.5rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+p,
+ul,
+ol {
+  margin: 0 0 1rem;
+  color: var(--text-body);
+}
+
+ul,
+ol {
+  padding-left: 1.35rem;
+}
+
+li {
+  margin-bottom: 0.45rem;
+}
+
+li::marker {
+  color: var(--text-muted);
+}
+
+li strong {
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+/* All in-content links — high visibility */
+a.inline,
+.page-shell a:not(.card):not(.brand) {
+  color: var(--link);
+  font-weight: 600;
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+  text-decoration-color: var(--link-underline);
+}
+
+a.inline:hover,
+.page-shell a:not(.card):not(.brand):hover {
+  color: var(--link-hover);
+  text-decoration-color: var(--link-hover);
+}
+
+code {
+  font-size: 0.88em;
+  font-family: ui-monospace, "Cascadia Code", "Segoe UI Mono", monospace;
+  color: var(--text-primary);
+  background: var(--bg-card);
+  border: 1px solid var(--border-strong);
+  border-radius: 0.3rem;
+  padding: 0.15em 0.45em;
+  font-weight: 500;
+}
+
+.guide-grid {
+  display: grid;
+  gap: 1rem;
+  margin: 2rem 0;
+}
+
+@media (min-width: 520px) {
+  .guide-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.card {
+  border: 1px solid var(--border-strong);
+  border-radius: 0.75rem;
+  background: var(--bg-card);
+  padding: 1.35rem 1.4rem;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.08) inset,
+    0 12px 32px rgba(0, 0, 0, 0.4);
+  transition: border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+a.card {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+}
+
+a.card:hover {
+  border-color: var(--link-underline);
+  transform: translateY(-2px);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.1) inset,
+    0 16px 40px rgba(0, 0, 0, 0.5);
+}
+
+.card h2 {
+  margin: 0 0 0.5rem;
+  font-size: 1.08rem;
+  color: var(--text-primary);
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.card p {
+  margin: 0 0 0.75rem;
+  font-size: 0.95rem;
+  color: var(--text-body);
+}
+
+.card .card-cta {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--link);
+  text-decoration: underline;
+  text-decoration-color: var(--link-underline);
+}
+
+.panel {
+  border: 1px solid var(--border-strong);
+  border-radius: 0.5rem;
+  background: var(--bg-elevated);
+  padding: 1.15rem 1.25rem;
+  margin: 1rem 0 1.25rem;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.panel-muted {
+  background: var(--bg-card);
+}
+
+.panel p:last-child {
+  margin-bottom: 0;
+}
+
+.panel h2,
+.panel h3 {
+  border-bottom: none;
+}
+
+pre.code-block {
+  overflow-x: auto;
+  margin: 0 0 1rem;
+  padding: 1rem 1.2rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 0.5rem;
+  background: var(--bg-inset);
+  box-shadow: inset 0 2px 12px rgba(0, 0, 0, 0.55);
+  font-size: 0.875rem;
+  line-height: 1.55;
+}
+
+pre.code-block code {
+  border: none;
+  padding: 0;
+  background: transparent;
+  color: #e4e4e7;
+  font-weight: 400;
+}
+
+.site-footer {
+  margin-top: 3rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--border-strong);
+  font-size: 0.9rem;
+}
+
+.site-footer p {
+  margin: 0;
+  color: var(--text-muted);
+}
+
+.badge {
+  display: inline-block;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-primary);
+  background: var(--border-subtle);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  padding: 0.28em 0.75em;
+  margin-bottom: 0.75rem;
+}

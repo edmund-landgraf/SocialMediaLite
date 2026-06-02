@@ -46,6 +46,20 @@ export const stubLoginSchema = z.discriminatedUnion("kind", [
 
 export const commentTextSchema = z.string().trim().min(1).max(8000);
 
+/** Photo / imported FB captions (Postgres `TEXT`; app-enforced max). */
+export const POST_CAPTION_MAX_LENGTH = 4000;
+
+export const photoCaptionSchema = z.string().trim().max(POST_CAPTION_MAX_LENGTH);
+
+/** Truncate user caption text for storage (import + uploads). */
+export function truncatePostCaption(value: string | null | undefined): string | null {
+  if (value == null) return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (trimmed.length <= POST_CAPTION_MAX_LENGTH) return trimmed;
+  return trimmed.slice(0, POST_CAPTION_MAX_LENGTH);
+}
+
 export const postTextSchema = z.string().trim().min(1).max(32000).optional();
 
 export const TEXT_POST_FONT_SIZE_MIN = 12;

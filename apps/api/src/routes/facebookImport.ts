@@ -12,6 +12,7 @@ import {
   importFacebookPostToWall,
   mapGraphPostToPreview,
 } from "../services/facebookImport.js";
+import { probeFacebookImportAccessToken } from "../services/facebookAccessToken.js";
 import { downloadFacebookImage } from "../services/facebookReelMetadata.js";
 
 export const facebookImportRouter = Router();
@@ -43,13 +44,21 @@ facebookImportRouter.get("/facebook/import/eligibility", async (req, res) => {
     res.json({ eligible: false, reason: userCheck.error });
     return;
   }
-  if (!req.session.facebookAccessToken) {
+  const token = req.session.facebookAccessToken;
+  if (!token) {
     res.json({
       eligible: false,
-      reason: "Facebook access token missing. Log out and sign in with Facebook again.",
+      reason: "Facebook access token missing. Sign in with Facebook, or connect for import.",
     });
     return;
   }
+
+  const probe = await probeFacebookImportAccessToken(token);
+  if (!probe.ok) {
+    res.json({ eligible: false, reason: probe.reason });
+    return;
+  }
+
   res.json({ eligible: true });
 });
 

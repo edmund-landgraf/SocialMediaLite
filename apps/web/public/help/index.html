@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SocialMediaLite — Help</title>
+    <link rel="stylesheet" href="help.css" />
+  </head>
+  <body>
+    <nav class="site-nav" aria-label="Help site">
+      <a class="brand" href="index.html">SocialMediaLite Help</a>
+      <div class="nav-group">
+        <a href="index.html" aria-current="page">Home</a>
+        <a href="first-time-user.html">First-time user</a>
+        <a href="setup-server.html">Setup server</a>
+        <a href="/login">Sign in</a>
+        <a href="/blog">Blog</a>
+        <a href="/feedback">Feedback</a>
+      </div>
+    </nav>
+
+    <div class="page-shell">
+      <header class="page-header">
+        <h1>Help &amp; guides</h1>
+        <p class="lead">
+          Pick the guide that matches what you need — running your own copy, or using the app for the first
+          time. No account required to read these pages.
+        </p>
+      </header>
+
+      <div class="guide-grid">
+        <a class="card" href="first-time-user.html">
+          <span class="badge">Users</span>
+          <h2>How to use as a first-time user</h2>
+          <p>Sign in, find your profile, post, add friends, react, and import from Facebook.</p>
+          <p class="card-cta">Open user guide →</p>
+        </a>
+        <a class="card" href="setup-server.html">
+          <span class="badge">Hosts</span>
+          <h2>How to setup on your own server</h2>
+          <p>Postgres, environment, migrations, and running the API + web app on your machine or VPS.</p>
+          <p class="card-cta">Open server guide →</p>
+        </a>
+      </div>
+
+      <section class="panel panel-muted">
+        <h2 style="margin-top: 0">What is SocialMediaLite?</h2>
+        <p>
+          A Facebook-style <strong>personal page</strong> prototype: profiles, friends, posts, comments, link
+          previews, and optional Facebook timeline import. Phase 1 has <strong>no global feed</strong> — you
+          open people’s pages directly or use the friends feed on your own profile.
+        </p>
+      </section>
+
+      <h2>App pages (no login to read help)</h2>
+      <ul>
+        <li><a class="inline" href="/login">Sign in</a></li>
+        <li><a class="inline" href="/blog">Blog</a></li>
+        <li><a class="inline" href="/feedback">Feedback</a></li>
+      </ul>
+
+      <footer class="site-footer">
+        <p>Static HTML in <code>apps/web/public/help/</code> — served with the web app in dev and production.</p>
+      </footer>
+    </div>
+  </body>
+</html>

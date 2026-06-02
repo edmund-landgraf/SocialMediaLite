@@ -5,6 +5,7 @@ import {
   parseFacebookReelId,
   stripFacebookReelUrls,
   isRealFacebookUser,
+  truncatePostCaption,
 } from "@socialmedialite/shared";
 import type { StorageProvider } from "../storage/types.js";
 import { buildStoredLinkPreview } from "./linkPreview.js";
@@ -479,7 +480,7 @@ export async function importFacebookPostToWall(args: {
   const reelUrl = findReelUrl(graphPost);
   const attachment = primaryAttachment(graphPost);
   const previewType = derivePreviewType(graphPost);
-  const message = graphPost.message?.trim() || null;
+  const message = truncatePostCaption(graphPost.message?.trim() || null);
 
   let type: PostType = "TEXT";
   let data: {
@@ -535,7 +536,7 @@ export async function importFacebookPostToWall(args: {
       ...data,
       type,
       videoUrl: resolved.metadata.permalinkUrl ?? reelUrl,
-      text: userCaption || null,
+      text: truncatePostCaption(userCaption) || null,
       linkTitle: reelTitle,
       linkDescription: reelDescription,
       linkPreviewImageKey,
@@ -557,7 +558,7 @@ export async function importFacebookPostToWall(args: {
         type,
         text: null,
         photoKey: key,
-        photoCaption: message && message.length <= 80 ? message : message?.slice(0, 80) ?? null,
+        photoCaption: message,
       };
     }
   } else if (previewType === "link") {

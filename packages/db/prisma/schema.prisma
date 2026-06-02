@@ -73,6 +73,7 @@ model Post {
   type            PostType
   text            String?
   photoKey        String?
+  /// User caption (photos, FB import); Postgres TEXT, max 4000 chars in app.
   photoCaption    String?
   videoUrl              String?
   /// Open-graph / inferred title when type is VIDEO_LINK (any shared URL).

@@ -14,6 +14,7 @@ import {
   offlineStubTestUserRow,
 } from "../services/offlineTestUser.js";
 import { loginStubTestUser } from "../services/stubTestUsers.js";
+import { probeFacebookImportAccessToken } from "../services/facebookAccessToken.js";
 import { serializeUser } from "../services/serializers.js";
 
 export const authRouter = Router();
@@ -177,19 +178,50 @@ async function fetchFacebookMe(config: FacebookConfig, accessToken: string): Pro
 }
 
 authRouter.get("/facebook/start", (req, res) => {
-  startFacebookOAuth(req, res, { scope: FB_LOGIN_SCOPE, storeImportToken: false });
+  startFacebookOAuth(req, res, { scope: FB_LOGIN_SCOPE });
 });
 
-/** Re-auth with user_posts for timeline import (separate from login scope). */
-authRouter.get("/facebook/import/start", (req, res) => {
-  startFacebookOAuth(req, res, { scope: FB_IMPORT_SCOPE, storeImportToken: true });
+/** Re-auth with user_posts for timeline import when the session token cannot read posts. */
+authRouter.get("/facebook/import/start", async (req, res) => {
+  const config = getFacebookConfig();
+  if (!config) {
+    res.status(500).json({
+      error:
+        "Facebook Login is not configured. Set FACEBOOK_APP_ID and FACEBOOK_APP_SECRET.",
+    });
+    return;
+  }
+
+  const webOrigin = process.env.WEB_ORIGIN ?? "http://localhost:5174";
+  const returnTo = safeOAuthReturnTo(req.query.returnTo);
+  const existingToken = req.session.facebookAccessToken;
+
+  if (existingToken) {
+    const probe = await probeFacebookImportAccessToken(existingToken);
+    if (probe.ok) {
+      if (returnTo) {
+        res.redirect(`${webOrigin}${returnTo}`);
+        return;
+      }
+      if (req.session.userId) {
+        const user = await prisma.user.findUnique({
+          where: { id: req.session.userId },
+          select: { username: true },
+        });
+        if (user) {
+          res.redirect(`${webOrigin}/${encodeURIComponent(user.username)}?fbImport=1`);
+          return;
+        }
+      }
+      res.redirect(`${webOrigin}/`);
+      return;
+    }
+  }
+
+  startFacebookOAuth(req, res, { scope: FB_IMPORT_SCOPE });
 });
 
-function startFacebookOAuth(
-  req: Request,
-  res: Response,
-  opts: { scope: string; storeImportToken: boolean },
-) {
+function startFacebookOAuth(req: Request, res: Response, opts: { scope: string }) {
   const config = getFacebookConfig();
   if (!config) {
     res.status(500).json({
@@ -200,7 +232,6 @@ function startFacebookOAuth(
   }
   const state = crypto.randomUUID();
   req.session.oauthState = state;
-  req.session.oauthStoreImportToken = opts.storeImportToken;
   const returnTo = safeOAuthReturnTo(req.query.returnTo);
   if (returnTo) {
     req.session.oauthReturnTo = returnTo;
@@ -261,11 +292,8 @@ authRouter.get("/facebook/callback", async (req, res) => {
   }
 
   const returnTo = safeOAuthReturnTo(req.session.oauthReturnTo);
-  const storeImportToken = req.session.oauthStoreImportToken === true;
   delete req.session.oauthState;
   delete req.session.oauthReturnTo;
-  delete req.session.oauthStoreImportToken;
-
   try {
     const accessToken = await exchangeFacebookCodeForToken(config, code);
     const me = await fetchFacebookMe(config, accessToken);
@@ -302,11 +330,8 @@ authRouter.get("/facebook/callback", async (req, res) => {
     await ensureAiFriendshipForUser(user.id);
     delete req.session.offlineTestUser;
     req.session.userId = user.id;
-    if (storeImportToken) {
-      req.session.facebookAccessToken = accessToken;
-    } else {
-      delete req.session.facebookAccessToken;
-    }
+    /** Keep token on login and import so import can reuse a valid user_posts grant. */
+    req.session.facebookAccessToken = accessToken;
     if (returnTo) {
       res.redirect(`${webOrigin}${returnTo}`);
       return;

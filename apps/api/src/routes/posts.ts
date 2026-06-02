@@ -2,7 +2,15 @@ import type { NextFunction, Request, Response } from "express";
 import { Router } from "express";
 import multer from "multer";
 import { z } from "zod";
-import { usernameParamSchema, textPostFontSizeSchema, textPostHexColorSchema, postReactionKindSchema, postReactionDetailsSchema, reactionCollectsDetails } from "@socialmedialite/shared";
+import {
+  photoCaptionSchema,
+  usernameParamSchema,
+  textPostFontSizeSchema,
+  textPostHexColorSchema,
+  postReactionKindSchema,
+  postReactionDetailsSchema,
+  reactionCollectsDetails,
+} from "@socialmedialite/shared";
 import { prisma } from "../lib/prisma.js";
 import { requireAuth } from "../middleware/auth.js";
 import { assertCanAccessProfile } from "../services/access.js";
@@ -55,8 +63,6 @@ const createJsonSchema = z.discriminatedUnion("type", [
     text: z.string().trim().max(32000).optional(),
   }),
 ]);
-
-const photoCaptionSchema = z.string().trim().max(80);
 
 export const postsRouter = Router();
 postsRouter.use(requireAuth);

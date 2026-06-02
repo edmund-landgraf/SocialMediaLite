@@ -244,8 +244,9 @@ export function FacebookImportModal(props: {
               {needsImportAuth ? (
                 <div className="space-y-3 px-4 py-6">
                   <p className="text-sm leading-relaxed text-zinc-400">
-                    Import needs permission to read your Facebook timeline posts. Connect once to
-                    enable import — login alone does not grant this.
+                    Import needs permission to read your Facebook timeline posts. If you already
+                    connected for import this session, try closing and reopening the dialog — otherwise
+                    connect once below.
                   </p>
                   <Button type="button" className="w-full" onClick={connectFacebookForImport}>
                     Connect Facebook for import

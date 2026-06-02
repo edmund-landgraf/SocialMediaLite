@@ -2,6 +2,7 @@ import { Loader2, X } from "lucide-react";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type CSSProperties } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
+  POST_CAPTION_MAX_LENGTH,
   TEXT_POST_BG_DEFAULT,
   TEXT_POST_COLOR_DEFAULT,
   TEXT_POST_FONT_SIZE_DEFAULT,
@@ -12,6 +13,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { PostReactionPicker } from "@/components/PostReactionPicker";
 import { CommentThread } from "@/components/CommentThread";
+import { LinkifiedText } from "@/components/LinkifiedText";
 import { BannerPositionEditor, bannerObjectPositionStyle } from "@/components/BannerPositionEditor";
 import { FacebookImportModal } from "@/components/FacebookImportModal";
 import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
@@ -289,7 +291,7 @@ function PostCard(props: {
   }, [props.post.id, props.post.type]);
 
   useEffect(() => {
-    setCaptionDraft((photoCaption ?? "").slice(0, 80));
+    setCaptionDraft((photoCaption ?? "").slice(0, POST_CAPTION_MAX_LENGTH));
     setCaptionEditing(false);
     setCaptionError(null);
   }, [photoCaption, props.post.id]);
@@ -441,7 +443,7 @@ function PostCard(props: {
           </div>
         ) : props.post.type === "VIDEO_LINK" || props.post.type === "REEL" ? (
           props.post.text ? (
-            <div className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-200">{props.post.text}</div>
+            <LinkifiedText text={props.post.text} className="text-sm leading-relaxed text-zinc-200" />
           ) : null
         ) : null}
 
@@ -477,12 +479,14 @@ function PostCard(props: {
             {captionEditing ? (
               <div className="rounded-lg border border-zinc-900 bg-zinc-950/60 p-2">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                  <Input
+                  <Textarea
                     value={captionDraft}
-                    onChange={(e) => setCaptionDraft(e.target.value.slice(0, 80))}
-                    maxLength={80}
+                    onChange={(e) =>
+                      setCaptionDraft(e.target.value.slice(0, POST_CAPTION_MAX_LENGTH))
+                    }
+                    maxLength={POST_CAPTION_MAX_LENGTH}
                     placeholder="Caption (optional)"
-                    className="h-8 text-xs"
+                    className="min-h-[72px] text-xs"
                   />
                   <div className="flex shrink-0 items-center gap-2">
                     <Button size="sm" disabled={captionBusy} onClick={() => void saveCaption()}>
@@ -493,7 +497,7 @@ function PostCard(props: {
                       variant="ghost"
                       disabled={captionBusy}
                       onClick={() => {
-                        setCaptionDraft((photoCaption ?? "").slice(0, 80));
+                        setCaptionDraft((photoCaption ?? "").slice(0, POST_CAPTION_MAX_LENGTH));
                         setCaptionEditing(false);
                         setCaptionError(null);
                       }}
@@ -502,13 +506,19 @@ function PostCard(props: {
                     </Button>
                   </div>
                 </div>
-                <div className="mt-1 text-right text-[10px] text-zinc-500">{captionDraft.length}/80</div>
+                <div className="mt-1 text-right text-[10px] text-zinc-500">
+                  {captionDraft.length}/{POST_CAPTION_MAX_LENGTH}
+                </div>
                 {captionError ? <div className="mt-1 text-xs text-red-200">{captionError}</div> : null}
               </div>
             ) : (
               <div className="flex items-start justify-between gap-3">
-                <div className="min-h-5 flex-1 whitespace-pre-wrap text-sm leading-relaxed text-zinc-200">
-                  {photoCaption || (props.canEditCaption ? <span className="text-zinc-500">No caption</span> : null)}
+                <div className="min-h-5 flex-1 text-sm leading-relaxed text-zinc-200">
+                  {photoCaption ? (
+                    <LinkifiedText text={photoCaption} />
+                  ) : props.canEditCaption ? (
+                    <span className="text-zinc-500">No caption</span>
+                  ) : null}
                 </div>
                 {props.canEditCaption ? (
                   <Button size="sm" variant="ghost" className="h-7 px-2 text-[11px]" onClick={() => setCaptionEditing(true)}>

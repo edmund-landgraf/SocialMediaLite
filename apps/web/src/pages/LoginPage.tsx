@@ -153,6 +153,12 @@ export function LoginPage() {
           </CardHeader>
           <CardContent className="space-y-3">
             <Button asChild variant="outline" className="w-full">
+              <a href="/help/first-time-user.html">How to use (first time)</a>
+            </Button>
+            <Button asChild variant="outline" className="w-full">
+              <a href="/help/setup-server.html">Setup on your server</a>
+            </Button>
+            <Button asChild variant="outline" className="w-full">
               <Link to="/blog">Blog</Link>
             </Button>
             <Button type="button" variant="outline" className="w-full" onClick={openFeedback}>
