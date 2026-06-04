@@ -10,6 +10,11 @@
 #   ./scripts/deploy-prod.sh
 #   WEB_ROOT=/var/www/unwhelm.online ./scripts/deploy-prod.sh
 #   SKIP_GIT_PULL=1 ./scripts/deploy-prod.sh
+#
+# Do not edit tracked files on the VPS (e.g. LoginPage.tsx). Fix in dev, push, then deploy.
+# If git pull fails due to local edits, restore and pull:
+#   git restore apps/web/src/pages/LoginPage.tsx package-lock.json
+#   git pull origin main
 
 set -euo pipefail
 
@@ -24,6 +29,15 @@ echo "    repo:     $ROOT"
 echo "    web root: $WEB_ROOT"
 
 if [[ "${SKIP_GIT_PULL:-}" != "1" ]]; then
+  dirty="$(git status --porcelain -- apps/web/src/pages/LoginPage.tsx package-lock.json 2>/dev/null || true)"
+  if [[ -n "$dirty" ]]; then
+    echo "WARN: local VPS edits would block git pull (common: LoginPage help link, package-lock from npm install)"
+    git diff --stat -- apps/web/src/pages/LoginPage.tsx package-lock.json 2>/dev/null || true
+    echo "    Restore tracked files, then re-run deploy:"
+    echo "      git restore apps/web/src/pages/LoginPage.tsx package-lock.json"
+    echo "      git pull origin main"
+    exit 1
+  fi
   echo "==> git pull"
   git pull origin main
 fi
@@ -43,6 +57,15 @@ npm run blog:sync || echo "    (blog sync skipped or failed — continuing deplo
 echo "==> publish web dist -> $WEB_ROOT"
 sudo mkdir -p "$WEB_ROOT"
 sudo rsync -a --delete apps/web/dist/ "$WEB_ROOT/"
+
+if [[ "$(uname -s)" == "Linux" ]]; then
+  echo "==> yt-dlp / ffmpeg check (inline video playback)"
+  if bash scripts/check-ytdlp-prod.sh; then
+    echo "    (optional: SMOKE=1 ./scripts/check-ytdlp-prod.sh for network extract test)"
+  else
+    echo "    WARN: yt-dlp check failed — iframe embeds still work; fix before relying on Play inline"
+  fi
+fi
 
 echo "==> restart API ($PM2_APP)"
 if pm2 describe sml-web >/dev/null 2>&1; then
