@@ -73,3 +73,9 @@ export async function upsertPostReaction(
     update: { kind, details: storedDetails },
   });
 }
+
+export async function removePostReaction(postId: string, userId: string) {
+  return prisma.postReaction.deleteMany({
+    where: { postId, userId },
+  });
+}

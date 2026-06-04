@@ -17,7 +17,12 @@ import { assertCanAccessProfile } from "../services/access.js";
 import { AI_FRIEND } from "../services/aiFriend.js";
 import { buildStoredLinkPreview } from "../services/linkPreview.js";
 import { processImageToMaxSize } from "../services/image.js";
-import { loadPostReactionSummaries, upsertPostReaction, type PostReactionSummary } from "../services/postReactions.js";
+import {
+  loadPostReactionSummaries,
+  removePostReaction,
+  upsertPostReaction,
+  type PostReactionSummary,
+} from "../services/postReactions.js";
 import {
   offlineGlowbyteIntroPhotoDataUrl,
   offlineGlowbyteWallPostRows,
@@ -457,7 +462,13 @@ postsRouter.post("/posts/:postId/reaction", async (req, res) => {
     return;
   }
 
-  await upsertPostReaction(post.id, viewerId, body.data.kind, body.data.details);
+  const before = await loadPostReactionSummaries([post.id], viewerId);
+  const current = before.get(post.id)?.viewerReaction ?? null;
+  if (current === body.data.kind) {
+    await removePostReaction(post.id, viewerId);
+  } else {
+    await upsertPostReaction(post.id, viewerId, body.data.kind, body.data.details);
+  }
   const summaries = await loadPostReactionSummaries([post.id], viewerId);
   const summary = summaries.get(post.id) ?? EMPTY_REACTIONS;
 

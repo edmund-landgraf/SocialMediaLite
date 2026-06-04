@@ -526,6 +526,13 @@ const prisma = {
       db.postReactions.push(rec);
       return { ...rec };
     },
+    async deleteMany(args: { where: { postId: string; userId: string } }) {
+      const before = db.postReactions.length;
+      db.postReactions = db.postReactions.filter(
+        (r) => !(r.postId === args.where.postId && r.userId === args.where.userId),
+      );
+      return { count: before - db.postReactions.length };
+    },
   },
   blogEntry: {
     async findMany(args: { orderBy?: { committedAt?: "desc" | "asc" } }) {
@@ -853,6 +860,41 @@ describe("api integration (phase 1)", () => {
     expect(post.viewerReaction).toBe("funny");
     expect(post.reactionTotal).toBe(1);
     expect(post.reactions).toEqual([{ kind: "funny", count: 1 }]);
+
+    const removed = await alice.post(`/api/posts/${postId}/reaction`).send({ kind: "funny" });
+    expect(removed.status).toBe(200);
+    expect(removed.body.viewerReaction).toBeNull();
+    expect(removed.body.reactionTotal).toBe(0);
+    expect(removed.body.reactions).toEqual([]);
+  });
+
+  it("aggregates reactions from multiple users on list", async () => {
+    const { alice, bob } = await createAgents();
+    await loginTestUser(alice);
+    await loginFacebookStub(bob);
+
+    await bob.post("/api/friends/request").send({ username: "testuser" });
+    await alice.post("/api/friends/accept").send({ username: "fbdemo" });
+
+    const created = await bob.post("/api/users/testuser/posts").send({
+      type: "TEXT",
+      text: "multi react",
+    });
+    const postId = created.body.post.id as string;
+
+    await alice.post(`/api/posts/${postId}/reaction`).send({ kind: "like" });
+    await bob.post(`/api/posts/${postId}/reaction`).send({ kind: "care" });
+
+    const list = await alice.get("/api/users/testuser/posts");
+    const post = list.body.posts.find((p: { id: string }) => p.id === postId);
+    expect(post.reactionTotal).toBe(2);
+    expect(post.reactions).toEqual(
+      expect.arrayContaining([
+        { kind: "like", count: 1 },
+        { kind: "care", count: 1 },
+      ]),
+    );
+    expect(post.reactions).toHaveLength(2);
   });
 
   it("stores optional details for disagree reactions", async () => {

@@ -48,6 +48,50 @@ async function parseJsonSafe(res: Response): Promise<unknown> {
   }
 }
 
+type ZodFlattenLike = {
+  formErrors?: string[];
+  fieldErrors?: Record<string, string[] | undefined>;
+};
+
+function messageFromApiErrorPayload(error: unknown): string | null {
+  if (typeof error === "string") return error.trim() || null;
+  if (!error || typeof error !== "object") return null;
+
+  if ("message" in error && typeof (error as { message?: unknown }).message === "string") {
+    const msg = (error as { message: string }).message.trim();
+    if (msg) return msg;
+  }
+
+  const flat = error as ZodFlattenLike;
+  const parts: string[] = [];
+  for (const msg of flat.formErrors ?? []) {
+    if (msg.trim()) parts.push(msg.trim());
+  }
+  for (const [field, msgs] of Object.entries(flat.fieldErrors ?? {})) {
+    const joined = (msgs ?? []).filter(Boolean).join(", ");
+    if (joined) parts.push(`${field}: ${joined}`);
+  }
+  if (parts.length > 0) return parts.join(" · ");
+
+  return null;
+}
+
+/** Human-readable message from an API error body or thrown ApiError. */
+export function formatApiError(err: unknown, fallback = "Request failed"): string {
+  const apiErr = ApiError.maybe(err);
+  if (apiErr) {
+    if (apiErr.body && typeof apiErr.body === "object" && apiErr.body && "error" in apiErr.body) {
+      const fromPayload = messageFromApiErrorPayload((apiErr.body as { error: unknown }).error);
+      if (fromPayload) return fromPayload;
+    }
+    if (apiErr.message && !apiErr.message.includes("[object Object]")) return apiErr.message;
+  }
+  if (err instanceof Error && err.message && !err.message.includes("[object Object]")) {
+    return err.message;
+  }
+  return fallback;
+}
+
 export async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers ?? undefined);
   if (init?.body && typeof init.body === "string" && !headers.has("Content-Type")) {
@@ -61,10 +105,11 @@ export async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
 
   const body = await parseJsonSafe(res);
   if (!res.ok) {
-    const msg =
+    const fromBody =
       typeof body === "object" && body && "error" in body
-        ? String((body as { error: unknown }).error)
-        : `Request failed (${res.status})`;
+        ? messageFromApiErrorPayload((body as { error: unknown }).error)
+        : null;
+    const msg = fromBody ?? `Request failed (${res.status})`;
     throw new ApiError(msg, res.status, body);
   }
 

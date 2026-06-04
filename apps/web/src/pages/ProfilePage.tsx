@@ -1,8 +1,19 @@
 import { ExternalLink, Loader2, Play, X } from "lucide-react";
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type CSSProperties } from "react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ClipboardEvent,
+  type CSSProperties,
+  type SyntheticEvent,
+} from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   POST_CAPTION_MAX_LENGTH,
+  resolveInlineVideoEmbed,
   TEXT_POST_BG_DEFAULT,
   TEXT_POST_COLOR_DEFAULT,
   TEXT_POST_FONT_SIZE_DEFAULT,
@@ -11,7 +22,7 @@ import {
   type PostReactionKind,
 } from "@socialmedialite/shared";
 import { Button } from "@/components/ui/button";
-import { PostReactionPicker } from "@/components/PostReactionPicker";
+import { PostReactionPicker, type PostReactionSummary } from "@/components/PostReactionPicker";
 import { CommentThread } from "@/components/CommentThread";
 import { LinkifiedText } from "@/components/LinkifiedText";
 import { BannerPositionEditor, bannerObjectPositionStyle } from "@/components/BannerPositionEditor";
@@ -21,7 +32,12 @@ import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { ApiError, apiFetch, apiJson } from "@/lib/api";
+import { ApiError, apiFetch, apiJson, formatApiError } from "@/lib/api";
+import {
+  mediaErrorLabel,
+  reportVideoPlayerError,
+  type VideoPlayerKind,
+} from "@/lib/videoPlayerLog";
 import type { FriendsFeedBucket, FriendsFeedMeta, PostDTO, ProfileMeta, PublicUser } from "@/types";
 
 declare global {
@@ -155,10 +171,197 @@ function ensureMixcloudWidgetApi(): Promise<void> {
 /** Hover popup cap — longer than the 2-line preview; aligned with API link description max. */
 const LINK_DESCRIPTION_POPUP_MAX = 840;
 
+/** Accept pasted URLs like `tiktok.com/...` by adding https:// when missing. */
+function normalizeComposerPageUrl(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return trimmed;
+  if (/^[a-z][a-z0-9+.-]*:/i.test(trimmed)) return trimmed;
+  return `https://${trimmed}`;
+}
+
+function decodeHtmlEntities(text: string): string {
+  if (!/&(?:#x?[0-9a-f]+|[a-z]+);/i.test(text)) return text;
+  const el = document.createElement("textarea");
+  el.innerHTML = text;
+  return el.value;
+}
+
 function linkDescriptionPopupText(description: string): string {
   const trimmed = description.trim();
   if (trimmed.length <= LINK_DESCRIPTION_POPUP_MAX) return trimmed;
   return `${trimmed.slice(0, LINK_DESCRIPTION_POPUP_MAX - 1)}…`;
+}
+
+/** Portrait iframe embeds (TikTok, FB reel) need a tall fixed box; native <video> uses 9:16. */
+function videoPlayerShellClass(
+  layout: "landscape" | "portrait",
+  outer = true,
+  shell: "native" | "iframe" = "native",
+): string {
+  if (layout === "landscape") {
+    return outer
+      ? "w-full"
+      : "relative w-full overflow-hidden rounded border border-zinc-800 bg-black aspect-video";
+  }
+
+  if (shell === "iframe") {
+    return outer
+      ? "mx-auto w-full min-w-[325px] max-w-[605px]"
+      : "relative w-full overflow-hidden rounded border border-zinc-800 bg-black h-[min(742px,85vh)] min-h-[605px]";
+  }
+
+  return outer
+    ? "mx-auto w-full max-w-[360px]"
+    : "relative w-full overflow-hidden rounded border border-zinc-800 bg-black aspect-[9/16] max-h-[min(70vh,520px)]";
+}
+
+const PORTRAIT_IFRAME_PROPS = {
+  scrolling: "no" as const,
+  className: "absolute inset-0 size-full overflow-hidden border-0",
+};
+
+function logIframePlayerError(
+  playerKind: VideoPlayerKind,
+  embedUrl: string,
+  pageUrl?: string,
+): void {
+  reportVideoPlayerError({
+    playerKind,
+    embedUrl,
+    pageUrl,
+    message: "Iframe failed to load",
+  });
+}
+
+/** yt-dlp stream via API (Instagram/TikTok/X “Play inline instead” fallback). */
+function NativeVideoPlayer(props: {
+  pageUrl: string;
+  layout: "landscape" | "portrait";
+  externalLabel: string;
+  playerKind?: Extract<VideoPlayerKind, "native" | "hybrid-native">;
+}) {
+  const [loadError, setLoadError] = useState(false);
+  const streamSrc = `/api/link-preview/playback-stream?url=${encodeURIComponent(props.pageUrl)}`;
+  const playerKind = props.playerKind ?? "native";
+
+  useEffect(() => {
+    setLoadError(false);
+  }, [props.pageUrl, streamSrc]);
+
+  const handleVideoError = (event: SyntheticEvent<HTMLVideoElement>) => {
+    const video = event.currentTarget;
+    const code = video.error?.code;
+    reportVideoPlayerError({
+      playerKind,
+      pageUrl: props.pageUrl,
+      message: code != null ? mediaErrorLabel(code) : "HTML5 video playback failed",
+      mediaErrorCode: code,
+      networkState: video.networkState,
+      readyState: video.readyState,
+    });
+    setLoadError(true);
+  };
+
+  return (
+    <div className={videoPlayerShellClass(props.layout)}>
+      <div className={videoPlayerShellClass(props.layout, false)}>
+        {loadError ? (
+          <div className="flex size-full flex-col items-center justify-center gap-2 p-4 text-center text-xs text-zinc-400">
+            <p>Could not play this video here.</p>
+            <a
+              href={props.pageUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-semibold text-sky-300 hover:underline"
+            >
+              Open on {props.externalLabel}
+            </a>
+          </div>
+        ) : (
+          <video
+            key={streamSrc}
+            className="absolute inset-0 size-full object-contain"
+            controls
+            playsInline
+            autoPlay
+            preload="metadata"
+            src={streamSrc}
+            onError={handleVideoError}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Platform iframe first; optional switch to yt-dlp inline player (Instagram, TikTok, X). */
+function HybridIframeVideoPlayer(props: {
+  embedUrl: string;
+  pageUrl: string;
+  layout: "landscape" | "portrait";
+  externalLabel: string;
+  playerKey: string;
+}) {
+  const [mode, setMode] = useState<"iframe" | "native">("iframe");
+
+  useEffect(() => {
+    setMode("iframe");
+  }, [props.playerKey, props.pageUrl]);
+
+  return (
+    <div className="space-y-2">
+      {mode === "iframe" ? (
+        <div
+          className={videoPlayerShellClass(
+            props.layout,
+            true,
+            props.layout === "portrait" ? "iframe" : "native",
+          )}
+        >
+          <div
+            className={[
+              videoPlayerShellClass(
+                props.layout,
+                false,
+                props.layout === "portrait" ? "iframe" : "native",
+              ),
+              props.layout === "portrait" ? "bg-zinc-950" : "",
+            ].join(" ")}
+          >
+            <iframe
+              key={props.playerKey}
+              title={`${props.externalLabel} embed`}
+              src={props.embedUrl}
+              {...(props.layout === "portrait" ? PORTRAIT_IFRAME_PROPS : { className: "absolute inset-0 size-full border-0" })}
+              allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
+              allowFullScreen
+              loading="lazy"
+              referrerPolicy="strict-origin-when-cross-origin"
+              onError={() =>
+                logIframePlayerError("hybrid-iframe", props.embedUrl, props.pageUrl)
+              }
+            />
+          </div>
+        </div>
+      ) : (
+        <NativeVideoPlayer
+          pageUrl={props.pageUrl}
+          layout={props.layout}
+          externalLabel={props.externalLabel}
+          playerKind="hybrid-native"
+        />
+      )}
+      {mode === "iframe" ? (
+        <Button type="button" variant="ghost" size="sm" className="min-h-10" onClick={() => setMode("native")}>
+          Play inline instead
+        </Button>
+      ) : (
+        <Button type="button" variant="ghost" size="sm" className="min-h-10" onClick={() => setMode("iframe")}>
+          Use {props.externalLabel} embed
+        </Button>
+      )}
+    </div>
+  );
 }
 
 /** Two-line preview only; full summary lives in the native `title` tooltip (not in the card). */
@@ -176,7 +379,7 @@ function LinkPreviewDescription(props: { description: string; compact?: boolean 
       ].join(" ")}
       title={showTooltip ? tooltipText : undefined}
     >
-      {props.description}
+      {decodeHtmlEntities(props.description)}
     </span>
   );
 }
@@ -190,17 +393,25 @@ function SharedLinkEmbed(props: {
   heroUrl?: string | null;
   compact?: boolean;
 }) {
+  const displayTitle = decodeHtmlEntities(props.title);
+  const displayDescription = props.description?.trim() ? decodeHtmlEntities(props.description) : null;
   const [heroBroken, setHeroBroken] = useState(false);
   const [showPlayer, setShowPlayer] = useState(false);
   const [playerSession, setPlayerSession] = useState(0);
   const mixcloudIframeRef = useRef<HTMLIFrameElement | null>(null);
+  const [embedActivated, setEmbedActivated] = useState(false);
   const audioOnly = isAudioOnlyLink(props.href);
+  const videoEmbed = !audioOnly ? resolveInlineVideoEmbed(props.href) : null;
+  const inlinePlayable = audioOnly || videoEmbed != null;
   const soundCloudPlayer = audioOnly ? soundCloudEmbedUrl(props.href) : null;
   const mixcloudPlayer = audioOnly ? mixcloudEmbedUrl(props.href, showPlayer) : null;
 
   useEffect(() => {
     setHeroBroken(false);
-  }, [props.heroUrl]);
+    setShowPlayer(false);
+    setEmbedActivated(false);
+    setPlayerSession(0);
+  }, [props.href, props.heroUrl]);
 
   useEffect(() => {
     if (!showPlayer || !mixcloudPlayer || !mixcloudIframeRef.current) return;
@@ -220,8 +431,13 @@ function SharedLinkEmbed(props: {
         setTimeout(() => {
           if (!cancelled) widget.play();
         }, 900);
-      } catch {
-        // Ignore widget API failures; user can still press play inside iframe.
+      } catch (err) {
+        reportVideoPlayerError({
+          playerKind: "mixcloud",
+          pageUrl: props.href,
+          embedUrl: mixcloudPlayer ?? undefined,
+          message: err instanceof Error ? err.message : "Mixcloud widget API failed",
+        });
       }
     })();
     return () => {
@@ -276,17 +492,17 @@ function SharedLinkEmbed(props: {
                 props.compact ? "text-[13px] leading-snug" : "text-sm leading-snug",
               ].join(" ")}
             >
-              {props.title}
+              {displayTitle}
             </div>
           </a>
-          {props.description?.trim() ? (
-            <LinkPreviewDescription description={props.description} compact={props.compact} />
+          {displayDescription ? (
+            <LinkPreviewDescription description={displayDescription} compact={props.compact} />
           ) : null}
         </div>
       </div>
-      {audioOnly ? (
+      {inlinePlayable ? (
         <div className="flex flex-wrap items-center gap-2 border-t border-zinc-800/80 px-3 py-2">
-          <Button asChild variant="secondary" size="sm">
+          <Button asChild variant="secondary" size="sm" className="min-h-10">
             <a href={props.href} target="_blank" rel="noopener noreferrer">
               <ExternalLink className="size-3.5" />
               Open link
@@ -296,10 +512,14 @@ function SharedLinkEmbed(props: {
             type="button"
             variant="ghost"
             size="sm"
+            className="min-h-10"
             onClick={() =>
               setShowPlayer((v) => {
                 const next = !v;
-                if (next) setPlayerSession((s) => s + 1);
+                if (next) {
+                  setEmbedActivated(true);
+                  setPlayerSession((s) => s + 1);
+                }
                 return next;
               })
             }
@@ -309,16 +529,66 @@ function SharedLinkEmbed(props: {
           </Button>
         </div>
       ) : null}
-      {audioOnly && showPlayer ? (
+      {inlinePlayable && showPlayer ? (
         <div className="border-t border-zinc-800/80 bg-zinc-900/40 p-3">
-          {soundCloudPlayer ? (
+          {embedActivated && videoEmbed?.kind === "native" ? (
+            <NativeVideoPlayer
+              key={`native-${playerSession}`}
+              pageUrl={videoEmbed.pageUrl}
+              layout={videoEmbed.layout}
+              externalLabel={videoEmbed.externalLabel}
+            />
+          ) : embedActivated && videoEmbed?.kind === "iframe" && videoEmbed.nativeFallback ? (
+            <HybridIframeVideoPlayer
+              key={`hybrid-${playerSession}`}
+              playerKey={`hybrid-frame-${playerSession}`}
+              embedUrl={videoEmbed.embedUrl}
+              pageUrl={videoEmbed.nativeFallback.pageUrl}
+              layout={videoEmbed.layout}
+              externalLabel={videoEmbed.nativeFallback.externalLabel}
+            />
+          ) : embedActivated && videoEmbed?.kind === "iframe" ? (
+            <div
+              className={videoPlayerShellClass(
+                videoEmbed.layout,
+                true,
+                videoEmbed.layout === "portrait" ? "iframe" : "native",
+              )}
+            >
+              <div
+                className={videoPlayerShellClass(
+                  videoEmbed.layout,
+                  false,
+                  videoEmbed.layout === "portrait" ? "iframe" : "native",
+                )}
+              >
+                <iframe
+                  key={`video-${playerSession}`}
+                  title="Video player"
+                  src={videoEmbed.embedUrl}
+                  {...(videoEmbed.layout === "portrait"
+                    ? PORTRAIT_IFRAME_PROPS
+                    : { className: "absolute inset-0 size-full border-0" })}
+                  allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
+                  allowFullScreen
+                  loading="lazy"
+                  referrerPolicy="strict-origin-when-cross-origin"
+                  onError={() => logIframePlayerError("iframe", videoEmbed.embedUrl, props.href)}
+                />
+              </div>
+            </div>
+          ) : embedActivated && soundCloudPlayer ? (
             <iframe
               title="SoundCloud player"
               src={soundCloudPlayer}
               className="h-[166px] w-full rounded border border-zinc-800 bg-zinc-950"
               allow="autoplay"
+              loading="lazy"
+              onError={() =>
+                logIframePlayerError("soundcloud", soundCloudPlayer, props.href)
+              }
             />
-          ) : mixcloudPlayer ? (
+          ) : embedActivated && mixcloudPlayer ? (
             <iframe
               key={`mixcloud-${playerSession}`}
               ref={mixcloudIframeRef}
@@ -326,12 +596,28 @@ function SharedLinkEmbed(props: {
               src={mixcloudPlayer}
               className="h-[120px] w-full rounded border border-zinc-800 bg-zinc-950"
               allow="autoplay; encrypted-media"
+              loading="lazy"
+              onError={() =>
+                logIframePlayerError("mixcloud", mixcloudPlayer, props.href)
+              }
             />
-          ) : (
-            <audio controls preload="none" src={props.href} className="w-full">
+          ) : embedActivated ? (
+            <audio
+              controls
+              preload="none"
+              src={props.href}
+              className="w-full"
+              onError={() =>
+                reportVideoPlayerError({
+                  playerKind: "audio",
+                  pageUrl: props.href,
+                  message: "HTML5 audio playback failed",
+                })
+              }
+            >
               Your browser does not support audio playback.
             </audio>
-          )}
+          ) : null}
         </div>
       ) : null}
     </div>
@@ -521,12 +807,21 @@ function PostCard(props: {
     }
   }
 
-  async function pickReaction(kind: PostReactionKind, options?: { details?: string }) {
-    await apiJson(`/api/posts/${props.post.id}/reaction`, {
+  async function pickReaction(kind: PostReactionKind, options?: { details?: string }): Promise<PostReactionSummary> {
+    const res = await apiJson<{
+      viewerReaction: PostReactionKind | null;
+      reactions: PostReactionSummary["reactions"];
+      reactionTotal: number;
+    }>(`/api/posts/${props.post.id}/reaction`, {
       method: "POST",
       body: JSON.stringify({ kind, ...(options?.details ? { details: options.details } : {}) }),
     });
-    props.onChanged();
+    void props.onChanged();
+    return {
+      viewerReaction: res.viewerReaction,
+      reactions: res.reactions,
+      reactionTotal: res.reactionTotal,
+    };
   }
 
   return (
@@ -763,6 +1058,7 @@ function PostCard(props: {
               ) : null}
               {props.canReact ? (
                 <PostReactionPicker
+                  reactions={props.post.reactions ?? []}
                   viewerReaction={(props.post.viewerReaction as PostReactionKind | null) ?? null}
                   reactionTotal={props.post.reactionTotal ?? 0}
                   onPick={pickReaction}
@@ -948,7 +1244,7 @@ export function ProfilePage() {
       setLinkComposerPreview(null);
       return;
     }
-    const raw = composerVideo.trim();
+    const raw = normalizeComposerPageUrl(composerVideo);
     let acceptable = false;
     try {
       const u = new URL(raw);
@@ -1062,9 +1358,10 @@ export function ProfilePage() {
         });
         clearTextComposer();
       } else {
+        const videoUrl = normalizeComposerPageUrl(composerVideo);
         await apiJson(`/api/users/${encodeURIComponent(owner)}/posts`, {
           method: "POST",
-          body: JSON.stringify({ type: "VIDEO_LINK", videoUrl: composerVideo, text: composerText || undefined }),
+          body: JSON.stringify({ type: "VIDEO_LINK", videoUrl, text: composerText || undefined }),
         });
         setComposerText("");
         setComposerVideo("");
@@ -1072,7 +1369,7 @@ export function ProfilePage() {
 
       await refreshActiveFeed();
     } catch (e) {
-      setComposerErr(e instanceof Error ? e.message : "Failed creating post");
+      setComposerErr(formatApiError(e, "Failed creating post"));
     } finally {
       setComposerBusy(false);
     }
@@ -1133,7 +1430,7 @@ export function ProfilePage() {
       clearStagedPhoto();
       await refreshPosts();
     } catch (e) {
-      setComposerErr(e instanceof Error ? e.message : "Failed uploading photo");
+      setComposerErr(formatApiError(e, "Failed uploading photo"));
     } finally {
       setComposerBusy(false);
     }

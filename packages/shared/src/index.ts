@@ -26,6 +26,22 @@ export {
   stripFacebookReelUrls,
 } from "./facebookReel.js";
 
+export {
+  isYouTubeHostname,
+  parseYouTubeVideoId,
+  parseInstagramEmbedPath,
+  parseTikTokVideoId,
+  parseXTweetId,
+  supportsYtDlpPlayback,
+  resolveInlineVideoEmbed,
+  isInlineVideoLink,
+  type InlineVideoEmbed,
+  type InlineVideoEmbedLayout,
+  type InlineVideoNativeFallback,
+} from "./videoEmbeds.js";
+
+export { normalizePlaybackPageUrl } from "./playbackUrl.js";
+
 export const usernameSchema = z
   .string()
   .trim()

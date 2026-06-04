@@ -18,6 +18,7 @@ import {
   createStorageProviderFromEnv,
   getResolvedLocalStorageRoot,
 } from "./storage/index.js";
+import { writeVideoPlayerLog } from "./services/videoPlayerLog.js";
 
 export function createApp() {
   const app = express();
@@ -84,10 +85,20 @@ export function createApp() {
   app.use("/api", linkPreviewRouter);
   app.use("/api", commentsRouter);
 
-  const jsonErrorHandler: ErrorRequestHandler = (err, _req, res, next) => {
+  const jsonErrorHandler: ErrorRequestHandler = (err, req, res, next) => {
     if (res.headersSent) {
       next(err);
       return;
+    }
+    const path = req.path ?? "";
+    if (path.includes("playback-stream") || path.includes("video-player-error")) {
+      void writeVideoPlayerLog({
+        source: "api",
+        kind: "api.unhandled",
+        path,
+        userId: req.session.userId ?? null,
+        message: err instanceof Error ? err.message : String(err),
+      });
     }
     console.error("Unhandled API error:", err);
     const dev = process.env.NODE_ENV !== "production";

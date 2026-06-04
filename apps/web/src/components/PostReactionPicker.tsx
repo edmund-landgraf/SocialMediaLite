@@ -3,24 +3,81 @@ import {
   getPostReaction,
   POST_REACTIONS,
   reactionCollectsDetails,
+  type PostReactionCount,
   type PostReactionKind,
 } from "@socialmedialite/shared";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 
+export type PostReactionSummary = {
+  reactions: PostReactionCount[];
+  viewerReaction: PostReactionKind | null;
+  reactionTotal: number;
+};
+
+function bumpKind(
+  reactions: PostReactionCount[],
+  kind: PostReactionKind,
+  delta: number,
+): PostReactionCount[] {
+  const map = new Map(reactions.map((r) => [r.kind, r.count]));
+  const next = (map.get(kind) ?? 0) + delta;
+  if (next <= 0) map.delete(kind);
+  else map.set(kind, next);
+  return [...map.entries()].map(([k, count]) => ({ kind: k as PostReactionKind, count }));
+}
+
+function applyOptimistic(
+  prev: PostReactionSummary,
+  kind: PostReactionKind,
+): PostReactionSummary {
+  if (prev.viewerReaction === kind) {
+    const reactions = bumpKind(prev.reactions, kind, -1);
+    return {
+      reactions,
+      viewerReaction: null,
+      reactionTotal: Math.max(0, prev.reactionTotal - 1),
+    };
+  }
+  let reactions = prev.reactions;
+  let total = prev.reactionTotal;
+  if (prev.viewerReaction) {
+    reactions = bumpKind(reactions, prev.viewerReaction, -1);
+    total -= 1;
+  }
+  reactions = bumpKind(reactions, kind, 1);
+  total += 1;
+  return { reactions, viewerReaction: kind, reactionTotal: total };
+}
+
 export function PostReactionPicker(props: {
+  reactions: PostReactionCount[];
   viewerReaction: PostReactionKind | null;
   reactionTotal: number;
   disabled?: boolean;
-  onPick: (kind: PostReactionKind, options?: { details?: string }) => Promise<void>;
+  onPick: (kind: PostReactionKind, options?: { details?: string }) => Promise<PostReactionSummary>;
 }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [detailsDraft, setDetailsDraft] = useState("");
+  const [summary, setSummary] = useState<PostReactionSummary>({
+    reactions: props.reactions,
+    viewerReaction: props.viewerReaction,
+    reactionTotal: props.reactionTotal,
+  });
   const wrapRef = useRef<HTMLDivElement>(null);
 
-  const current = props.viewerReaction ? getPostReaction(props.viewerReaction) : null;
+  useEffect(() => {
+    setSummary({
+      reactions: props.reactions,
+      viewerReaction: props.viewerReaction,
+      reactionTotal: props.reactionTotal,
+    });
+  }, [props.reactions, props.viewerReaction, props.reactionTotal]);
+
+  const current = summary.viewerReaction ? getPostReaction(summary.viewerReaction) : null;
+  const visibleReactions = summary.reactions.filter((r) => r.count > 0);
 
   useEffect(() => {
     if (!open) return;
@@ -49,12 +106,18 @@ export function PostReactionPicker(props: {
 
   async function submitPick(kind: PostReactionKind, details?: string) {
     if (busy || props.disabled) return;
+    const optimistic = applyOptimistic(summary, kind);
+    const previous = summary;
+    setSummary(optimistic);
     setBusy(true);
     try {
-      await props.onPick(kind, details ? { details } : undefined);
+      const next = await props.onPick(kind, details ? { details } : undefined);
+      setSummary(next);
       setOpen(false);
       setDetailsOpen(false);
       setDetailsDraft("");
+    } catch {
+      setSummary(previous);
     } finally {
       setBusy(false);
     }
@@ -62,6 +125,10 @@ export function PostReactionPicker(props: {
 
   function beginPick(kind: PostReactionKind) {
     if (busy || props.disabled) return;
+    if (summary.viewerReaction === kind) {
+      void submitPick(kind);
+      return;
+    }
     if (reactionCollectsDetails(kind)) {
       setOpen(false);
       setDetailsDraft("");
@@ -82,7 +149,31 @@ export function PostReactionPicker(props: {
 
   return (
     <>
-      <div ref={wrapRef} className="relative inline-flex items-center gap-1.5">
+      <div ref={wrapRef} className="relative inline-flex flex-wrap items-center gap-1.5">
+        {visibleReactions.length > 0 ? (
+          <div
+            className="inline-flex flex-wrap items-center gap-1 rounded-full border border-zinc-800/80 bg-zinc-950/60 px-2 py-0.5"
+            aria-label={`${summary.reactionTotal} reactions`}
+          >
+            {visibleReactions.map((r) => {
+              const def = getPostReaction(r.kind);
+              if (!def) return null;
+              return (
+                <span
+                  key={r.kind}
+                  className="inline-flex items-center gap-0.5 text-sm leading-none"
+                  title={`${def.label}${r.count > 1 ? ` · ${r.count}` : ""}`}
+                >
+                  <span aria-hidden>{def.emoji}</span>
+                  {r.count > 1 ? (
+                    <span className="text-[11px] font-semibold tabular-nums text-zinc-400">{r.count}</span>
+                  ) : null}
+                </span>
+              );
+            })}
+          </div>
+        ) : null}
+
         <Button
           type="button"
           variant={current ? "secondary" : "ghost"}
@@ -104,9 +195,6 @@ export function PostReactionPicker(props: {
             "Reaction"
           )}
         </Button>
-        {props.reactionTotal > 0 && !current ? (
-          <span className="text-xs tabular-nums text-zinc-500">{props.reactionTotal}</span>
-        ) : null}
 
         {open ? (
           <div
@@ -119,11 +207,11 @@ export function PostReactionPicker(props: {
                 key={r.id}
                 type="button"
                 role="menuitem"
-                title={r.label}
+                title={summary.viewerReaction === r.id ? `${r.label} (click to remove)` : r.label}
                 disabled={busy}
                 className={[
                   "flex size-9 items-center justify-center rounded-full text-xl transition-colors hover:bg-zinc-800",
-                  props.viewerReaction === r.id ? "bg-zinc-800 ring-1 ring-zinc-600" : "",
+                  summary.viewerReaction === r.id ? "bg-zinc-800 ring-1 ring-zinc-600" : "",
                 ].join(" ")}
                 onClick={() => beginPick(r.id)}
               >

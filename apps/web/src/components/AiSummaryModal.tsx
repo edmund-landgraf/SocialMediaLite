@@ -3,9 +3,16 @@ import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { apiJson } from "@/lib/api";
 
+export type AiSummaryMode = "real" | "comedy";
+
 type SummarySection = { title: string; body: string };
 
+function isAiTakeSection(title: string): boolean {
+  return title.trim().toLowerCase() === "ai's take";
+}
+
 type PreviewResponse = {
+  mode: AiSummaryMode;
   narrative: string;
   sections: SummarySection[];
 };
@@ -16,22 +23,26 @@ export function AiSummaryModal(props: {
   onClose: () => void;
   onPosted: () => void | Promise<void>;
 }) {
+  const [activeMode, setActiveMode] = useState<AiSummaryMode | null>(null);
   const [loading, setLoading] = useState(false);
   const [posting, setPosting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [narrative, setNarrative] = useState("");
   const [sections, setSections] = useState<SummarySection[]>([]);
+  const [resultMode, setResultMode] = useState<AiSummaryMode | null>(null);
 
-  const loadPreview = useCallback(async () => {
+  const loadPreview = useCallback(async (selectedMode: AiSummaryMode) => {
     setLoading(true);
     setError(null);
     setNarrative("");
     setSections([]);
+    setResultMode(null);
     try {
       const data = await apiJson<PreviewResponse>("/api/me/ai-summary/preview", {
         method: "POST",
-        body: JSON.stringify({}),
+        body: JSON.stringify({ mode: selectedMode }),
       });
+      setResultMode(data.mode);
       setNarrative(data.narrative);
       setSections(
         data.sections?.length
@@ -46,16 +57,30 @@ export function AiSummaryModal(props: {
   }, []);
 
   useEffect(() => {
-    if (!props.open) return;
-    void loadPreview();
-  }, [props.open, loadPreview]);
+    if (props.open) return;
+    setActiveMode(null);
+    setLoading(false);
+    setPosting(false);
+    setError(null);
+    setNarrative("");
+    setSections([]);
+    setResultMode(null);
+  }, [props.open]);
+
+  function startMode(next: AiSummaryMode) {
+    if (loading || posting) return;
+    setActiveMode(next);
+    void loadPreview(next);
+  }
 
   async function postToProfile() {
     if (!narrative.trim()) return;
     setPosting(true);
     setError(null);
     try {
-      const postText = `✨ AI Summary\n\n${narrative.trim()}`;
+      const header =
+        resultMode === "comedy" ? "✨ AI Summary — Comedy" : "✨ AI Summary";
+      const postText = `${header}\n\n${narrative.trim()}`;
       await apiJson(`/api/users/${encodeURIComponent(props.username)}/posts`, {
         method: "POST",
         body: JSON.stringify({ type: "TEXT", text: postText }),
@@ -70,6 +95,8 @@ export function AiSummaryModal(props: {
   }
 
   if (!props.open) return null;
+
+  const comedyResult = resultMode === "comedy";
 
   return (
     <div
@@ -96,39 +123,110 @@ export function AiSummaryModal(props: {
                 AI Summary
               </h2>
               <p className="mt-1 max-w-xl text-sm leading-relaxed text-zinc-400">
-                A snapshot of your activity on this site. Nothing is saved until you post it to your profile.
+                Choose <span className="text-zinc-300">Real</span> or <span className="text-zinc-300">Comedy</span>{" "}
+                to generate. Nothing runs until you pick. Nothing is saved until you post.
               </p>
+              <div
+                className="mt-3 inline-flex rounded-lg border border-zinc-700 bg-zinc-900/80 p-0.5"
+                role="group"
+                aria-label="Summary style"
+              >
+                <button
+                  type="button"
+                  disabled={loading || posting}
+                  className={[
+                    "rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+                    activeMode === "real"
+                      ? "bg-violet-900/80 text-violet-100"
+                      : "text-zinc-400 hover:text-zinc-200",
+                  ].join(" ")}
+                  onClick={() => startMode("real")}
+                >
+                  Real
+                </button>
+                <button
+                  type="button"
+                  disabled={loading || posting}
+                  className={[
+                    "rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+                    activeMode === "comedy"
+                      ? "bg-amber-900/70 text-amber-100"
+                      : "text-zinc-400 hover:text-zinc-200",
+                  ].join(" ")}
+                  onClick={() => startMode("comedy")}
+                >
+                  Comedy
+                </button>
+              </div>
             </div>
           </div>
         </div>
 
         <div className="min-h-0 flex-1 overflow-hidden px-5 py-4">
-          {loading ? (
+          {loading && activeMode ? (
             <div className="flex min-h-[200px] flex-col items-center justify-center gap-3 text-sm text-zinc-400">
-              <Loader2 className="size-8 animate-spin text-violet-400" />
-              Generating your summary…
+              <Loader2
+                className={[
+                  "size-8 animate-spin",
+                  activeMode === "comedy" ? "text-amber-400" : "text-violet-400",
+                ].join(" ")}
+              />
+              {activeMode === "comedy" ? "Writing the comedy roast…" : "Writing your summary…"}
             </div>
           ) : error && !narrative ? (
             <div className="space-y-4 py-6">
               <p className="text-sm text-red-200">{error}</p>
-              <Button type="button" variant="secondary" size="sm" onClick={() => void loadPreview()}>
-                Try again
-              </Button>
+              {activeMode ? (
+                <Button type="button" variant="secondary" size="sm" onClick={() => startMode(activeMode)}>
+                  Try again
+                </Button>
+              ) : null}
+            </div>
+          ) : !narrative ? (
+            <div className="flex min-h-[200px] flex-col items-center justify-center gap-2 px-4 text-center">
+              <p className="text-sm text-zinc-400">Pick Real or Comedy above to start.</p>
+              <p className="text-xs text-zinc-600">Or Exit to close without generating.</p>
             </div>
           ) : (
             <div className="overflow-x-auto overflow-y-auto pb-2 [-webkit-overflow-scrolling:touch]">
               <div className="flex min-w-min gap-4 pr-2">
-                {sections.map((section) => (
-                  <article
-                    key={section.title}
-                    className="w-[min(88vw,320px)] shrink-0 rounded-lg border border-zinc-800 bg-zinc-900/60 p-4"
-                  >
-                    <h3 className="text-sm font-semibold text-violet-200">{section.title}</h3>
-                    <p className="mt-3 whitespace-pre-wrap text-[14px] leading-7 text-zinc-300">
-                      {section.body || "—"}
-                    </p>
-                  </article>
-                ))}
+                {sections.map((section) => {
+                  const aiTake = comedyResult || isAiTakeSection(section.title);
+                  return (
+                    <article
+                      key={section.title}
+                      className={[
+                        "shrink-0 rounded-lg border p-4",
+                        comedyResult ? "w-[min(92vw,520px)]" : "w-[min(88vw,320px)]",
+                        aiTake
+                          ? "border-amber-800/60 bg-gradient-to-b from-amber-950/40 to-zinc-900/60"
+                          : "border-zinc-800 bg-zinc-900/60",
+                      ].join(" ")}
+                    >
+                      <h3
+                        className={[
+                          "text-sm font-semibold",
+                          aiTake ? "text-amber-200" : "text-violet-200",
+                        ].join(" ")}
+                      >
+                        {section.title}
+                      </h3>
+                      {aiTake ? (
+                        <p className="mt-1 text-[10px] font-medium uppercase tracking-wider text-amber-600/90">
+                          {comedyResult ? "3–5 paragraphs · tangents OK" : "Satirical · dry wit"}
+                        </p>
+                      ) : null}
+                      <p
+                        className={[
+                          "mt-3 whitespace-pre-wrap text-[14px] leading-7",
+                          aiTake ? "text-amber-50/90" : "text-zinc-300",
+                        ].join(" ")}
+                      >
+                        {section.body || "—"}
+                      </p>
+                    </article>
+                  );
+                })}
               </div>
             </div>
           )}

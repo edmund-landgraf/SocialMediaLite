@@ -1,10 +1,15 @@
 import { Router } from "express";
+import { z } from "zod";
 import { requireAuth } from "../middleware/auth.js";
 import { generateAiSummaryPreview } from "../services/aiSummary/generatePreview.js";
 import { LlmNotConfiguredError } from "../services/llm/complete.js";
 import { isOfflineTestUserSession } from "../services/offlineTestUser.js";
 
 export const aiSummaryRouter = Router();
+
+const previewBodySchema = z.object({
+  mode: z.enum(["real", "comedy"]).default("real"),
+});
 
 aiSummaryRouter.post("/me/ai-summary/preview", requireAuth, async (req, res) => {
   if (isOfflineTestUserSession(req)) {
@@ -16,9 +21,16 @@ aiSummaryRouter.post("/me/ai-summary/preview", requireAuth, async (req, res) => 
 
   const userId = req.session.userId!;
 
+  const parsed = previewBodySchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.flatten() });
+    return;
+  }
+
   try {
-    const preview = await generateAiSummaryPreview(userId);
+    const preview = await generateAiSummaryPreview(userId, parsed.data.mode);
     res.json({
+      mode: preview.mode,
       narrative: preview.narrative,
       sections: preview.sections,
     });

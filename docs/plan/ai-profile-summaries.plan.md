@@ -34,6 +34,7 @@ isProject: false
 - Require **probabilistic language** for inference (`likely`, `appears to`, `suggests`) and avoid deterministic claims when evidence is sparse.
 - Ask the LLM to include **brief context glosses** for niche terms (example: “Series A” = early startup funding stage).
 - Ask for **inline evidence references** in prose using short quote snippets from source posts/comments.
+- User picks **Real** (3 analyst sections) or **Comedy** (single `AI's Take`, 3–5 paragraphs, one LLM pass each).
 - Add a durable server-side LLM debug log at `apps/api/logs/ai-summary-llm.log` capturing provider/model/endpoint/status/latency/error body snippets for Ollama troubleshooting.
 
 ---
