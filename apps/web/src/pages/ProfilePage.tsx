@@ -28,11 +28,13 @@ import { LinkifiedText } from "@/components/LinkifiedText";
 import { BannerPositionEditor, bannerObjectPositionStyle } from "@/components/BannerPositionEditor";
 import { AiSummaryModal } from "@/components/AiSummaryModal";
 import { FacebookImportModal } from "@/components/FacebookImportModal";
+import { GoLiveButton } from "@/components/GoLiveButton";
 import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { ApiError, apiFetch, apiJson, formatApiError } from "@/lib/api";
+import { useFriendPresence } from "@/lib/liveChat";
 import {
   mediaErrorLabel,
   reportVideoPlayerError,
@@ -1100,6 +1102,12 @@ export function ProfilePage() {
 
   const name = useMemo(() => (username ?? "").trim().toLowerCase(), [username]);
 
+  const liveFriendUsername =
+    profile && !profile.meta.isSelf && profile.meta.friendshipStatus === "accepted"
+      ? profile.user.username
+      : null;
+  const { presence: livePresence } = useFriendPresence(liveFriendUsername);
+
   const refreshProfile = useCallback(async () => {
     if (!name) return;
     const p = await apiJson<ProfileResp>(`/api/users/${encodeURIComponent(name)}`);
@@ -1611,6 +1619,9 @@ export function ProfilePage() {
             <Button asChild variant="secondary" size="sm">
               <Link to="/friends">Browse users</Link>
             </Button>
+            <Button asChild variant="secondary" size="sm">
+              <Link to="/messages">Messages</Link>
+            </Button>
             {profile?.meta.isSelf ? (
               <Button
                 type="button"
@@ -1733,10 +1744,13 @@ export function ProfilePage() {
           </div>
 
           <div className="flex flex-wrap items-center justify-end gap-2 pb-2">
-            {!profile.meta.isSelf && profile.meta.canViewContent ? (
-              <Button variant="secondary" disabled>
-                Messenger (later)
-              </Button>
+            {!profile.meta.isSelf && profile.meta.friendshipStatus === "accepted" ? (
+              <>
+                <Button asChild variant="secondary">
+                  <Link to={`/messages?to=${encodeURIComponent(profile.user.username)}`}>Message</Link>
+                </Button>
+                <GoLiveButton canGoLive={livePresence.canGoLive} variant="secondary" />
+              </>
             ) : null}
 
             {!profile.meta.isSelf ? (

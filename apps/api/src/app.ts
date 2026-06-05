@@ -14,6 +14,7 @@ import { feedbackRouter } from "./routes/feedback.js";
 import { facebookImportRouter } from "./routes/facebookImport.js";
 import { aiSummaryRouter } from "./routes/aiSummary.js";
 import { helpVideosRouter } from "./routes/helpVideos.js";
+import { messagesRouter } from "./routes/messages.js";
 import {
   createStorageProviderFromEnv,
   getResolvedLocalStorageRoot,
@@ -81,6 +82,7 @@ export function createApp() {
   app.use("/api", facebookImportRouter);
   app.use("/api", aiSummaryRouter);
   app.use("/api/friends", friendsRouter);
+  app.use("/api/messages", messagesRouter);
   app.use("/api", postsRouter);
   app.use("/api", linkPreviewRouter);
   app.use("/api", commentsRouter);

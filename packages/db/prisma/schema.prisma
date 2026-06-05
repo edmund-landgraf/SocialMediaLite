@@ -47,8 +47,55 @@ model User {
   postReactions    PostReaction[]
   feedbackItems    FeedbackItem[]
   feedbackComments FeedbackComment[]
+  messageThreadsCreated MessageThread[] @relation("MessageThreadCreator")
+  messageParticipations MessageThreadParticipant[]
+  messagesAuthored      Message[]
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
+}
+
+model MessageThread {
+  id                String   @id @default(uuid())
+  subject           String
+  createdById       String
+  participantLowId  String
+  participantHighId String
+  createdBy         User     @relation("MessageThreadCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  participants      MessageThreadParticipant[]
+  messages          Message[]
+  lastMessageAt     DateTime @default(now())
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([participantLowId, participantHighId, subject])
+  @@index([lastMessageAt(sort: Desc)])
+  @@index([participantLowId, participantHighId])
+}
+
+model MessageThreadParticipant {
+  id          String        @id @default(uuid())
+  threadId    String
+  userId      String
+  lastReadAt  DateTime      @default(now())
+  thread      MessageThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([threadId, userId])
+  @@index([userId])
+}
+
+model Message {
+  id        String        @id @default(uuid())
+  threadId  String
+  authorId  String
+  text      String
+  editedAt  DateTime?
+  deletedAt DateTime?
+  thread    MessageThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  author    User          @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  createdAt DateTime      @default(now())
+
+  @@index([threadId, createdAt])
 }
 
 model Friendship {
