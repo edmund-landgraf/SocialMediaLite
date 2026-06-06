@@ -18,11 +18,14 @@ import {
 } from "../services/messages/access.js";
 import { isOfflineTestUserSession, respondOfflineWritesDisabled } from "../services/offlineTestUser.js";
 import { serializeUser, type PublicUser } from "../services/serializers.js";
+import { getTrashFolderForUser, purgeExpiredTrashForUser } from "../services/messages/folders.js";
 import { liveChatRouter } from "./liveChat.js";
+import { messageFoldersRouter } from "./messageFolders.js";
 
 export const messagesRouter = Router();
 messagesRouter.use(requireAuth);
 messagesRouter.use("/live", liveChatRouter);
+messagesRouter.use(messageFoldersRouter);
 
 const authorSelect = {
   id: true,
@@ -94,6 +97,10 @@ messagesRouter.get("/threads", async (req, res) => {
     return;
   }
   const viewerId = req.session.userId!;
+  await purgeExpiredTrashForUser(viewerId);
+  const trashFolder = await getTrashFolderForUser(viewerId);
+  const trashFolderId = trashFolder?.id ?? null;
+
   const participations = await prisma.messageThreadParticipant.findMany({
     where: { userId: viewerId },
     include: {
@@ -117,6 +124,8 @@ messagesRouter.get("/threads", async (req, res) => {
     lastMessageAt: string;
     lastMessagePreview: string | null;
     unreadCount: number;
+    folderId: string | null;
+    trashedAt: string | null;
   }> = [];
 
   let totalUnread = 0;
@@ -128,7 +137,10 @@ messagesRouter.get("/threads", async (req, res) => {
 
     const last = part.thread.messages[0] ?? null;
     const unreadCount = await countUnread(part.thread.id, viewerId, part.lastReadAt);
-    totalUnread += unreadCount;
+    const inTrash = trashFolderId != null && part.folderId === trashFolderId;
+    if (!inTrash) {
+      totalUnread += unreadCount;
+    }
 
     threads.push({
       id: part.thread.id,
@@ -139,7 +151,9 @@ messagesRouter.get("/threads", async (req, res) => {
       lastMessagePreview: last
         ? messagePreviewText(last.text, last.deletedAt)
         : null,
-      unreadCount,
+      unreadCount: inTrash ? 0 : unreadCount,
+      folderId: part.folderId,
+      trashedAt: part.trashedAt?.toISOString() ?? null,
     });
   }
 

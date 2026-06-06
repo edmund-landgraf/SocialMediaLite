@@ -162,7 +162,7 @@ function CommentNode(props: {
             <span className="text-[11px] text-zinc-500">{formatTime(props.comment.createdAt)}</span>
           </div>
           <div className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-zinc-200">{props.comment.text}</div>
-          {props.readOnly ? null : (
+          {props.readOnly || props.comment.deletedAt ? null : (
             <Button
               variant="ghost"
               size="sm"

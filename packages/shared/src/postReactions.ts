@@ -9,6 +9,8 @@ export const POST_REACTIONS = [
   { id: "disagree", label: "Disagree", emoji: "👎" },
   { id: "celebrate", label: "Celebrate", emoji: "🎉" },
   { id: "funny", label: "Funny", emoji: "😂" },
+  { id: "insightful", label: "Insightful", emoji: "💡" },
+  { id: "wow", label: "Wow", emoji: "😮" },
 ] as const;
 
 export type PostReactionKind = (typeof POST_REACTIONS)[number]["id"];

@@ -3,8 +3,10 @@ import { FriendsPage } from "./pages/FriendsPage";
 import { BlogPage } from "./pages/BlogPage";
 import { FeedbackPage } from "./pages/FeedbackPage";
 import { LoginPage } from "./pages/LoginPage";
+import { MessageThreadPopoutPage } from "./pages/MessageThreadPopoutPage";
 import { MessagesPage } from "./pages/MessagesPage";
 import { ProfilePage } from "./pages/ProfilePage";
+import { SettingsPage } from "./pages/SettingsPage";
 
 export function App() {
   return (
@@ -14,7 +16,9 @@ export function App() {
         <Route path="/blog" element={<BlogPage />} />
         <Route path="/feedback" element={<FeedbackPage />} />
         <Route path="/friends" element={<FriendsPage />} />
+        <Route path="/messages/popout" element={<MessageThreadPopoutPage />} />
         <Route path="/messages" element={<MessagesPage />} />
+        <Route path="/settings" element={<SettingsPage />} />
         <Route path="/:username" element={<ProfilePage />} />
         <Route path="/" element={<Navigate to="/login" replace />} />
       </Routes>

@@ -161,6 +161,9 @@ export function FriendsPage() {
               <Button asChild variant="secondary" size="sm">
                 <Link to="/messages">Messages</Link>
               </Button>
+              <Button asChild variant="secondary" size="sm">
+                <Link to="/settings">Settings</Link>
+              </Button>
               <Button variant="ghost" size="sm" onClick={() => void logout()}>
                 Logout
               </Button>

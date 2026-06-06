@@ -677,6 +677,7 @@ vi.mock("../services/linkPreview.js", () => ({
     title: "Example article",
     description: "Short description.",
     remoteImageUrl: null,
+    hasPlaybackHandler: false,
   })),
 }));
 

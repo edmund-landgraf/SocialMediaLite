@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { pickYtDlpPlaybackFormat } from "./ytDlpClient.js";
+import { infoHasYtDlpPlaybackHandler, pickYtDlpPlaybackFormat } from "./ytDlpClient.js";
 
 describe("pickYtDlpPlaybackFormat", () => {
   it("prefers progressive mp4 with audio over HLS and video-only", () => {
@@ -60,5 +60,60 @@ describe("pickYtDlpPlaybackFormat", () => {
 
     expect(playback?.requestHeaders.Cookie).toContain("ttwid=abc");
     expect(playback?.requestHeaders.Cookie).toContain("tt_chain_token=xyz");
+  });
+});
+
+describe("infoHasYtDlpPlaybackHandler", () => {
+  const pageUrl = "https://news.yahoo.com/video/example-123.html";
+
+  it("returns true when progressive video formats exist", () => {
+    expect(
+      infoHasYtDlpPlaybackHandler(
+        {
+          extractor_key: "Yahoo",
+          formats: [
+            {
+              url: "https://cdn.example/play.mp4",
+              ext: "mp4",
+              vcodec: "h264",
+              acodec: "aac",
+            },
+          ],
+        },
+        pageUrl,
+      ),
+    ).toBe(true);
+  });
+
+  it("returns true for HLS-only video (yt-dlp pipe fallback)", () => {
+    expect(
+      infoHasYtDlpPlaybackHandler(
+        {
+          extractor_key: "generic",
+          formats: [
+            {
+              url: "https://cdn.example/hls.m3u8",
+              protocol: "m3u8",
+              vcodec: "h264",
+              acodec: "aac",
+            },
+          ],
+        },
+        pageUrl,
+      ),
+    ).toBe(true);
+  });
+
+  it("returns false when no video codecs are present", () => {
+    expect(
+      infoHasYtDlpPlaybackHandler(
+        {
+          extractor_key: "generic",
+          formats: [{ url: "https://cdn.example/audio.m4a", vcodec: "none", acodec: "aac" }],
+        },
+        pageUrl,
+      ),
+    ).toBe(false);
+    expect(infoHasYtDlpPlaybackHandler({ extractor_key: "generic", formats: [] }, pageUrl)).toBe(false);
   });
 });

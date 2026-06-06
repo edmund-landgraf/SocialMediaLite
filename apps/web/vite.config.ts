@@ -29,6 +29,10 @@ export const apiDevProxy = {
     target: "http://localhost:3001",
     changeOrigin: true,
   },
+  "/syndicate": {
+    target: "http://localhost:3001",
+    changeOrigin: true,
+  },
 } as const;
 
 export function createSharedConfig(): UserConfig {

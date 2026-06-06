@@ -49,6 +49,7 @@ model User {
   feedbackComments FeedbackComment[]
   messageThreadsCreated MessageThread[] @relation("MessageThreadCreator")
   messageParticipations MessageThreadParticipant[]
+  messageFolders        MessageFolder[]
   messagesAuthored      Message[]
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
@@ -72,16 +73,42 @@ model MessageThread {
   @@index([participantLowId, participantHighId])
 }
 
+enum MessageFolderKind {
+  CUSTOM
+  SAVED
+  ARCHIVED
+  TRASH
+}
+
+model MessageFolder {
+  id             String              @id @default(uuid())
+  userId         String
+  name           String
+  kind           MessageFolderKind     @default(CUSTOM)
+  sortOrder      Int                   @default(0)
+  user           User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  participants   MessageThreadParticipant[]
+  createdAt      DateTime              @default(now())
+
+  @@unique([userId, name])
+  @@index([userId, sortOrder])
+}
+
 model MessageThreadParticipant {
-  id          String        @id @default(uuid())
+  id          String         @id @default(uuid())
   threadId    String
   userId      String
-  lastReadAt  DateTime      @default(now())
-  thread      MessageThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
-  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  folderId    String?
+  /// Set when the viewer moves the thread to Trash; used for 30-day auto-purge.
+  trashedAt   DateTime?
+  lastReadAt  DateTime       @default(now())
+  thread      MessageThread  @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  user        User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  folder      MessageFolder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
 
   @@unique([threadId, userId])
   @@index([userId])
+  @@index([userId, folderId])
 }
 
 model Message {
@@ -142,10 +169,44 @@ model Post {
   comments        Comment[]
   friendsFeedReviews FriendsFeedReview[]
   reactions       PostReaction[]
+  syndication     PostSyndication?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
   @@index([profileOwnerId, createdAt(sort: Desc)])
+}
+
+model PostSyndication {
+  id              String   @id @default(uuid())
+  token           String   @unique
+  postId          String   @unique
+  createdByUserId String
+  /// When true, commenters (not the post author) appear under stable random aliases.
+  randomizeNames  Boolean  @default(true)
+  /// Frozen post + flat comment list for the public read-only page.
+  snapshotJson    Json
+  refreshedAt     DateTime
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  post    Post                    @relation(fields: [postId], references: [id], onDelete: Cascade)
+  aliases PostSyndicationAlias[]
+
+  @@index([createdByUserId])
+}
+
+model PostSyndicationAlias {
+  id            String   @id @default(uuid())
+  syndicationId String
+  userId        String
+  alias         String
+  createdAt     DateTime @default(now())
+
+  syndication PostSyndication @relation(fields: [syndicationId], references: [id], onDelete: Cascade)
+
+  @@unique([syndicationId, userId])
+  @@unique([syndicationId, alias])
+  @@index([syndicationId])
 }
 
 model PostReaction {
@@ -168,12 +229,14 @@ model PostReaction {
 model Comment {
   id        String    @id @default(uuid())
   postId    String
-  authorId  String
+  authorId  String?
   /// Null = top-level comment on the post; otherwise a reply (infinite depth).
   parentId  String?
   text      String
+  /// Set when the author deletes their account — row kept for reply threading.
+  deletedAt DateTime?
   post      Post      @relation(fields: [postId], references: [id], onDelete: Cascade)
-  author    User      @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  author    User?     @relation(fields: [authorId], references: [id], onDelete: SetNull)
   parent    Comment?  @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
   replies   Comment[] @relation("CommentReplies")
   createdAt DateTime  @default(now())
@@ -181,6 +244,7 @@ model Comment {
 
   @@index([postId, createdAt])
   @@index([parentId])
+  @@index([authorId])
 }
 
 model FriendsFeedReview {

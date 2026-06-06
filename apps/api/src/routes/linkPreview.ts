@@ -2,10 +2,15 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { Router } from "express";
 import { z } from "zod";
-import { normalizePlaybackPageUrl, supportsYtDlpPlayback } from "@socialmedialite/shared";
+import {
+  normalizePlaybackPageUrl,
+  parseKnownLinkHandler,
+  resolveInlineVideoEmbed,
+  supportsYtDlpPlayback,
+} from "@socialmedialite/shared";
 import { requireAuth } from "../middleware/auth.js";
 import { assertOutboundUrlSafe, fetchLinkPreviewMetadata } from "../services/linkPreview.js";
-import { getYtDlpPlayback } from "../services/ytDlpClient.js";
+import { getYtDlpPlayback, probeYtDlpLinkHandler } from "../services/ytDlpClient.js";
 import { pipeYtDlpToResponse } from "../services/ytDlpStream.js";
 import { writeVideoPlayerLog } from "../services/videoPlayerLog.js";
 
@@ -89,7 +94,13 @@ linkPreviewRouter.get("/link-preview/playback-stream", async (req, res, next) =>
       return;
     }
     const pageUrl = await assertOutboundUrlSafe(parsed.data.url);
-    if (!supportsYtDlpPlayback(pageUrl)) {
+    const embed = resolveInlineVideoEmbed(pageUrl.href);
+    const allowsYtDlpPlayback =
+      supportsYtDlpPlayback(pageUrl) ||
+      embed?.kind === "native" ||
+      (embed?.kind === "iframe" && embed.nativeFallback != null) ||
+      (parseKnownLinkHandler(pageUrl.href) == null && (await probeYtDlpLinkHandler(pageUrl.href)));
+    if (!allowsYtDlpPlayback) {
       await logPlaybackStreamError(req, {
         kind: "playback-stream.unsupported",
         pageUrl: pageUrl.href,

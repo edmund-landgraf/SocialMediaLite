@@ -77,10 +77,11 @@ export type FriendsFeedMeta = {
 export type CommentDTO = {
   id: string;
   postId: string;
-  authorId: string;
+  authorId: string | null;
   parentId: string | null;
   text: string;
   createdAt: string;
+  deletedAt?: string | null;
   author: PostAuthor;
 };
 

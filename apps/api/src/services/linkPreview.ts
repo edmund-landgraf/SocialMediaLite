@@ -2,7 +2,9 @@ import dns from "node:dns/promises";
 import net from "node:net";
 import type { StorageProvider } from "../storage/types.js";
 import { resizeLinkPreviewHero } from "./image.js";
+import { parseKnownLinkHandler } from "@socialmedialite/shared";
 import { fetchYouTubeMetadata, isYouTubeHostname } from "./youtubeMetadata.js";
+import { probeYtDlpLinkHandler } from "./ytDlpClient.js";
 
 const MAX_REDIRECTS = 5;
 const FETCH_TIMEOUT_MS = 12_000;
@@ -376,26 +378,37 @@ async function fetchImageBuffer(imageUrlStr: string): Promise<Buffer> {
 /**
  * Lightweight metadata for the composer (no stored thumbnail).
  */
+async function resolvePlaybackHandlerFlag(pageUrlStr: string): Promise<boolean> {
+  if (parseKnownLinkHandler(pageUrlStr)) return true;
+  return probeYtDlpLinkHandler(pageUrlStr);
+}
+
 export async function fetchLinkPreviewMetadata(pageUrlStr: string): Promise<{
   url: string;
   hostname: string;
   title: string | null;
   description: string | null;
   remoteImageUrl: string | null;
+  hasPlaybackHandler: boolean;
 }> {
   const first = await assertOutboundUrlSafe(pageUrlStr);
   const hostname = first.hostname;
+  const canonicalUrl = first.href.split("#")[0] ?? first.href;
 
   if (isYouTubeHostname(hostname)) {
     try {
-      const yt = await fetchYouTubeMetadata(first);
+      const [yt, hasPlaybackHandler] = await Promise.all([
+        fetchYouTubeMetadata(first),
+        resolvePlaybackHandlerFlag(pageUrlStr),
+      ]);
       if (yt) {
         return {
-          url: first.href.split("#")[0] ?? first.href,
+          url: canonicalUrl,
           hostname,
           title: clamp(yt.title, LINK_TITLE_MAX),
           description: clamp(yt.description, LINK_DESC_MAX),
           remoteImageUrl: yt.thumbnailUrl,
+          hasPlaybackHandler,
         };
       }
     } catch {
@@ -404,7 +417,10 @@ export async function fetchLinkPreviewMetadata(pageUrlStr: string): Promise<{
   }
 
   try {
-    const { finalUrl, buf } = await fetchLimited(pageUrlStr, MAX_HTML_BYTES);
+    const [{ finalUrl, buf }, hasPlaybackHandler] = await Promise.all([
+      fetchLimited(pageUrlStr, MAX_HTML_BYTES),
+      resolvePlaybackHandlerFlag(pageUrlStr),
+    ]);
     const page = await assertOutboundUrlSafe(finalUrl);
     const html = buf.toString("utf8");
 
@@ -420,14 +436,17 @@ export async function fetchLinkPreviewMetadata(pageUrlStr: string): Promise<{
       title,
       description,
       remoteImageUrl: imageUrl,
+      hasPlaybackHandler,
     };
   } catch {
+    const hasPlaybackHandler = await resolvePlaybackHandlerFlag(pageUrlStr).catch(() => false);
     return {
       url: pageUrlStr.split("#")[0]!,
       hostname,
       title: clamp(hostname.replace(/^www\./, ""), LINK_TITLE_MAX),
       description: null,
       remoteImageUrl: null,
+      hasPlaybackHandler,
     };
   }
 }

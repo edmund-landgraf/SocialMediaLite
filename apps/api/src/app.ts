@@ -15,6 +15,7 @@ import { facebookImportRouter } from "./routes/facebookImport.js";
 import { aiSummaryRouter } from "./routes/aiSummary.js";
 import { helpVideosRouter } from "./routes/helpVideos.js";
 import { messagesRouter } from "./routes/messages.js";
+import { getPublicPostSyndicationPage, postSyndicationRouter } from "./routes/postSyndication.js";
 import {
   createStorageProviderFromEnv,
   getResolvedLocalStorageRoot,
@@ -73,6 +74,8 @@ export function createApp() {
 
   app.get("/health", (_req, res) => res.json({ ok: true }));
 
+  app.get("/syndicate/:token", getPublicPostSyndicationPage);
+
   app.use("/api/auth", authRouter);
   /** Public blog + feedback reads — register before routers with global requireAuth on /api. */
   app.use("/api", blogRouter);
@@ -86,6 +89,7 @@ export function createApp() {
   app.use("/api", postsRouter);
   app.use("/api", linkPreviewRouter);
   app.use("/api", commentsRouter);
+  app.use("/api", postSyndicationRouter);
 
   const jsonErrorHandler: ErrorRequestHandler = (err, req, res, next) => {
     if (res.headersSent) {

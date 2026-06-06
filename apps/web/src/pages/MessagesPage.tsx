@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronRight, Loader2, Mail, Pencil, Plus, Trash2, X } from "lucide-react";
+import { ChevronDown, ChevronRight, ExternalLink, Loader2, Mail, Plus, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -6,12 +6,19 @@ import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { GoLiveButton } from "@/components/GoLiveButton";
-import { LinkifiedMessageText } from "@/lib/linkifyMessage";
+import { MessageFolderBar, type FolderFilter } from "@/components/MessageFolderBar";
+import {
+  MessageThreadContextMenu,
+  type MessageThreadContextMenuState,
+} from "@/components/MessageThreadContextMenu";
+import { MessageThreadBubbles } from "@/components/MessageThreadBubbles";
+import { formatMessageWhen } from "@/lib/messageTime";
 import { useFriendPresence } from "@/lib/liveChat";
 import { apiJson } from "@/lib/api";
 import {
   MESSAGE_BODY_MAX_LENGTH,
   MESSAGE_SUBJECT_MAX_LENGTH,
+  type MessageFolderDto,
   type RecipientSearchMode,
 } from "@socialmedialite/shared";
 import type { PublicUser } from "@/types";
@@ -26,6 +33,8 @@ type ThreadListItem = {
   lastMessageAt: string;
   lastMessagePreview: string | null;
   unreadCount: number;
+  folderId: string | null;
+  trashedAt: string | null;
 };
 
 type MessageItem = {
@@ -44,17 +53,9 @@ type RecipientResult = {
   user: MessageAuthor & { email?: string | null };
 };
 
-function formatWhen(iso: string): string {
-  const d = new Date(iso);
-  const now = new Date();
-  const sameDay =
-    d.getFullYear() === now.getFullYear() &&
-    d.getMonth() === now.getMonth() &&
-    d.getDate() === now.getDate();
-  if (sameDay) {
-    return d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
-  }
-  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+function popOutThread(threadId: string) {
+  const url = `${window.location.origin}/messages/popout?thread=${encodeURIComponent(threadId)}`;
+  window.open(url, `sml-thread-${threadId}`, "width=500,height=700,resizable=yes,scrollbars=yes");
 }
 
 function TinyAvatar(props: { user: Pick<PublicUser, "displayName" | "profilePicUrl">; size?: "sm" | "md" }) {
@@ -100,6 +101,12 @@ export function MessagesPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState("");
 
+  const [folders, setFolders] = useState<MessageFolderDto[]>([]);
+  const [unfiledCount, setUnfiledCount] = useState(0);
+  const [folderFilter, setFolderFilter] = useState<FolderFilter>("all");
+  const [dragThreadId, setDragThreadId] = useState<string | null>(null);
+  const [threadContextMenu, setThreadContextMenu] = useState<MessageThreadContextMenuState>(null);
+
   const expandedFriendUsername =
     expandedId != null
       ? (threads.find((t) => t.id === expandedId)?.otherParticipant.username ?? null)
@@ -107,9 +114,14 @@ export function MessagesPage() {
   const { presence: livePresence } = useFriendPresence(expandedFriendUsername);
 
   const refreshInbox = useCallback(async () => {
-    const data = await apiJson<{ threads: ThreadListItem[]; totalUnread: number }>("/api/messages/threads");
-    setThreads(data.threads);
-    setTotalUnread(data.totalUnread);
+    const [inbox, folderData] = await Promise.all([
+      apiJson<{ threads: ThreadListItem[]; totalUnread: number }>("/api/messages/threads"),
+      apiJson<{ unfiledCount: number; folders: MessageFolderDto[] }>("/api/messages/folders"),
+    ]);
+    setThreads(inbox.threads);
+    setTotalUnread(inbox.totalUnread);
+    setUnfiledCount(folderData.unfiledCount);
+    setFolders(folderData.folders);
   }, []);
 
   const loadThread = useCallback(async (threadId: string) => {
@@ -298,6 +310,43 @@ export function MessagesPage() {
     }
   }
 
+  async function assignThreadFolder(threadId: string, folderId: string | null) {
+    setError(null);
+    try {
+      await apiJson(`/api/messages/threads/${threadId}/folder`, {
+        method: "PATCH",
+        body: JSON.stringify({ folderId }),
+      });
+      await refreshInbox();
+      if (folderFilter !== "all" && folderId !== folderFilter) {
+        if (expandedId === threadId) setExpandedId(null);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to move thread");
+    }
+  }
+
+  async function createFolder(name: string) {
+    setError(null);
+    await apiJson("/api/messages/folders", {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    });
+    await refreshInbox();
+  }
+
+  async function deleteFolder(folderId: string) {
+    setError(null);
+    await apiJson(`/api/messages/folders/${folderId}`, { method: "DELETE" });
+    if (folderFilter === folderId) setFolderFilter("all");
+    await refreshInbox();
+  }
+
+  const filteredThreads = threads.filter((t) => {
+    if (folderFilter === "all") return t.folderId == null;
+    return t.folderId === folderFilter;
+  });
+
   async function deleteMessage(threadId: string, messageId: string) {
     if (!confirm("Remove this message?")) return;
     try {
@@ -350,10 +399,37 @@ export function MessagesPage() {
           <Button asChild variant="secondary" size="sm">
             <Link to="/friends">Browse users</Link>
           </Button>
+          <Button asChild variant="secondary" size="sm">
+            <Link to="/settings">Settings</Link>
+          </Button>
         </div>
       </header>
 
       {error ? <div className="rounded-md bg-red-950/40 px-3 py-2 text-sm text-red-200">{error}</div> : null}
+
+      <MessageFolderBar
+        unfiledCount={unfiledCount}
+        folders={folders}
+        selected={folderFilter}
+        onSelect={setFolderFilter}
+        onCreateFolder={createFolder}
+        onDeleteFolder={deleteFolder}
+        onAssignThread={assignThreadFolder}
+        dragThreadId={dragThreadId}
+        onDragThreadIdChange={setDragThreadId}
+      />
+
+      <MessageThreadContextMenu
+        state={threadContextMenu}
+        folders={folders}
+        currentFolderId={
+          threadContextMenu
+            ? (threads.find((t) => t.id === threadContextMenu.threadId)?.folderId ?? null)
+            : null
+        }
+        onMove={assignThreadFolder}
+        onClose={() => setThreadContextMenu(null)}
+      />
 
       {threads.length === 0 ? (
         <Card>
@@ -361,17 +437,47 @@ export function MessagesPage() {
             <CardDescription>No conversations yet. Message an accepted friend to start.</CardDescription>
           </CardHeader>
         </Card>
+      ) : filteredThreads.length === 0 ? (
+        <Card>
+          <CardHeader>
+            <CardDescription>
+              {folderFilter === "all"
+                ? "No unfiled conversations."
+                : folders.find((f) => f.id === folderFilter)?.kind === "TRASH"
+                  ? "Trash is empty. Drag a conversation here to delete it."
+                  : "No conversations in this folder. Drag a thread here or pick another folder."}
+            </CardDescription>
+          </CardHeader>
+        </Card>
       ) : (
         <div className="space-y-2">
-          {threads.map((thread) => {
+          {filteredThreads.map((thread) => {
             const expanded = expandedId === thread.id;
             const messages = threadMessages[thread.id] ?? [];
             return (
-              <Card key={thread.id} className="overflow-hidden border-zinc-800">
+              <Card
+                key={thread.id}
+                data-thread-id={thread.id}
+                className={[
+                  "overflow-hidden border-zinc-800",
+                  dragThreadId === thread.id ? "opacity-50" : "",
+                ].join(" ")}
+              >
                 <button
                   type="button"
-                  className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-zinc-900/50"
+                  draggable
+                  className="flex w-full cursor-grab items-center gap-3 px-4 py-3 text-left hover:bg-zinc-900/50 active:cursor-grabbing"
                   onClick={() => void toggleExpand(thread.id)}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    setThreadContextMenu({ threadId: thread.id, x: e.clientX, y: e.clientY });
+                  }}
+                  onDragStart={(e) => {
+                    e.dataTransfer.setData("text/thread-id", thread.id);
+                    e.dataTransfer.effectAllowed = "move";
+                    setDragThreadId(thread.id);
+                  }}
+                  onDragEnd={() => setDragThreadId(null)}
                 >
                   {expanded ? (
                     <ChevronDown className="size-4 shrink-0 text-zinc-500" />
@@ -394,7 +500,7 @@ export function MessagesPage() {
                       <p className="truncate text-xs text-zinc-500">{thread.lastMessagePreview}</p>
                     ) : null}
                   </div>
-                  <span className="shrink-0 text-[11px] text-zinc-600">{formatWhen(thread.lastMessageAt)}</span>
+                  <span className="shrink-0 text-[11px] text-zinc-600">{formatMessageWhen(thread.lastMessageAt)}</span>
                 </button>
 
                 {expanded ? (
@@ -403,105 +509,47 @@ export function MessagesPage() {
                       <p className="text-xs text-zinc-500">
                         Live chat archives into this thread when the session ends.
                       </p>
-                      <GoLiveButton
-                        canGoLive={livePresence.canGoLive}
-                        onGoLive={() => {
-                          /* LiveChatModal + POST /api/messages/live/sessions — see go-live-im.plan.md */
-                        }}
-                      />
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="min-h-8"
+                          onClick={() => popOutThread(thread.id)}
+                        >
+                          <ExternalLink className="size-3.5" />
+                          Pop out
+                        </Button>
+                        <GoLiveButton
+                          canGoLive={livePresence.canGoLive}
+                          onGoLive={() => {
+                            /* LiveChatModal + POST /api/messages/live/sessions — see go-live-im.plan.md */
+                          }}
+                        />
+                      </div>
                     </div>
                     {loadingThreadId === thread.id && messages.length === 0 ? (
                       <div className="flex justify-center py-6 text-zinc-500">
                         <Loader2 className="size-5 animate-spin" />
                       </div>
                     ) : (
-                      <div className="max-h-[min(50vh,420px)] space-y-3 overflow-y-auto rounded-lg bg-zinc-950/50 px-2 py-3 pr-1">
-                        {messages.map((m) => {
-                          const mine = m.authorId === me?.id;
-                          const deleted = Boolean(m.deletedAt);
-                          const editing = editingId === m.id;
-                          // Logged-in user always left (purple, no name); friend always right (grey + name).
-                          return (
-                            <div key={m.id} className={`flex ${mine ? "justify-start" : "justify-end"}`}>
-                              <div
-                                className={[
-                                  "group relative max-w-[min(88%,420px)] rounded-2xl px-3.5 py-2.5 text-sm shadow-sm",
-                                  mine
-                                    ? "border border-violet-400/40 bg-violet-600 text-white"
-                                    : "border border-zinc-600/45 bg-zinc-700/95 text-zinc-50",
-                                  deleted ? "border-zinc-700/50 bg-zinc-800/80 italic text-zinc-500" : "",
-                                ].join(" ")}
-                              >
-                                {!mine ? (
-                                  <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-wide text-zinc-300">
-                                    {m.author.displayName}
-                                  </div>
-                                ) : null}
-                                {editing ? (
-                                  <div className="space-y-2">
-                                    <Textarea
-                                      value={editDraft}
-                                      onChange={(e) => setEditDraft(e.target.value)}
-                                      rows={3}
-                                      maxLength={MESSAGE_BODY_MAX_LENGTH}
-                                    />
-                                    <div className="flex gap-2">
-                                      <Button type="button" size="sm" onClick={() => void saveEdit(thread.id, m.id)}>
-                                        Save
-                                      </Button>
-                                      <Button type="button" size="sm" variant="ghost" onClick={() => setEditingId(null)}>
-                                        Cancel
-                                      </Button>
-                                    </div>
-                                  </div>
-                                ) : deleted ? (
-                                  <span>Message removed</span>
-                                ) : (
-                                  <LinkifiedMessageText
-                                    text={m.text ?? ""}
-                                    tone={mine ? "onAccent" : "default"}
-                                  />
-                                )}
-                                <div
-                                  className={[
-                                    "mt-1.5 flex items-center gap-2 text-[10px]",
-                                    mine ? "text-violet-100/85" : "text-zinc-400",
-                                  ].join(" ")}
-                                >
-                                  <span>{formatWhen(m.createdAt)}</span>
-                                  {m.editedAt ? <span>(edited)</span> : null}
-                                </div>
-                                {!deleted && (m.canEdit || m.canDelete) ? (
-                                  <div className="absolute -top-2 right-1 hidden gap-1 group-hover:flex">
-                                    {m.canEdit ? (
-                                      <button
-                                        type="button"
-                                        className="rounded bg-zinc-900 p-1 text-zinc-400 hover:text-white"
-                                        aria-label="Edit message"
-                                        onClick={() => {
-                                          setEditingId(m.id);
-                                          setEditDraft(m.text ?? "");
-                                        }}
-                                      >
-                                        <Pencil className="size-3" />
-                                      </button>
-                                    ) : null}
-                                    {m.canDelete ? (
-                                      <button
-                                        type="button"
-                                        className="rounded bg-zinc-900 p-1 text-zinc-400 hover:text-red-300"
-                                        aria-label="Delete message"
-                                        onClick={() => void deleteMessage(thread.id, m.id)}
-                                      >
-                                        <Trash2 className="size-3" />
-                                      </button>
-                                    ) : null}
-                                  </div>
-                                ) : null}
-                              </div>
-                            </div>
-                          );
-                        })}
+                      <div className="max-h-[min(50vh,420px)] overflow-y-auto rounded-lg bg-zinc-950/50 px-2 py-3 pr-1">
+                        {me ? (
+                          <MessageThreadBubbles
+                            messages={messages}
+                            viewerId={me.id}
+                            editingId={editingId}
+                            editDraft={editDraft}
+                            onEditDraftChange={setEditDraft}
+                            onSaveEdit={(messageId) => void saveEdit(thread.id, messageId)}
+                            onCancelEdit={() => setEditingId(null)}
+                            onStartEdit={(messageId, text) => {
+                              setEditingId(messageId);
+                              setEditDraft(text);
+                            }}
+                            onDelete={(messageId) => void deleteMessage(thread.id, messageId)}
+                          />
+                        ) : null}
                       </div>
                     )}
                     <div className="flex gap-2">

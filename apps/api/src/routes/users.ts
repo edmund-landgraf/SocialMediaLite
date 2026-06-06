@@ -1,7 +1,7 @@
 import { Router } from "express";
 import multer from "multer";
 import { z } from "zod";
-import { usernameParamSchema } from "@socialmedialite/shared";
+import { deleteAccountSchema, usernameParamSchema } from "@socialmedialite/shared";
 import { prisma } from "../lib/prisma.js";
 import { requireAuth } from "../middleware/auth.js";
 import { areAcceptedFriends } from "../services/access.js";
@@ -10,6 +10,7 @@ import { AI_FRIEND } from "../services/aiFriend.js";
 import { offlineGlowbyteUserRow, offlineStubTestUserRowById } from "../services/offlineSeedData.js";
 import { isOfflineTestUserSession, respondOfflineWritesDisabled } from "../services/offlineTestUser.js";
 import { findStubTestUserProfileByOfflineUserId, findStubTestUserProfileByUsername, isRealFacebookUser } from "@socialmedialite/shared";
+import { deleteUserAccount, isDeleteAccountError } from "../services/deleteAccount.js";
 import { serializeUser } from "../services/serializers.js";
 
 const upload = multer({
@@ -218,6 +219,55 @@ usersRouter.patch("/me/banner", requireAuth, upload.single("banner"), async (req
 const bannerPositionSchema = z.object({
   x: z.number().min(0).max(100),
   y: z.number().min(0).max(100),
+});
+
+usersRouter.delete("/me/account", requireAuth, async (req, res) => {
+  if (isOfflineTestUserSession(req)) {
+    respondOfflineWritesDisabled(res);
+    return;
+  }
+
+  const body = deleteAccountSchema.safeParse(req.body);
+  if (!body.success) {
+    res.status(400).json({ error: body.error.flatten() });
+    return;
+  }
+
+  const userId = req.session.userId!;
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { username: true },
+  });
+  if (!user) {
+    res.status(404).json({ error: "Not found" });
+    return;
+  }
+
+  if (body.data.confirmUsername.toLowerCase() !== user.username.toLowerCase()) {
+    res.status(400).json({ error: "Username confirmation does not match" });
+    return;
+  }
+
+  try {
+    await deleteUserAccount(req, userId);
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Delete failed";
+    if (isDeleteAccountError(message)) {
+      const status = message === "USER_NOT_FOUND" ? 404 : 403;
+      res.status(status).json({ error: message === "CANNOT_DELETE_SYSTEM_USER" ? "This account cannot be deleted" : "Not found" });
+      return;
+    }
+    throw e;
+  }
+
+  req.session.destroy((err) => {
+    if (err) {
+      res.status(500).json({ error: "Account deleted but session could not be cleared" });
+      return;
+    }
+    res.clearCookie("sml.sid");
+    res.json({ ok: true });
+  });
 });
 
 usersRouter.patch("/me/banner-position", requireAuth, async (req, res) => {

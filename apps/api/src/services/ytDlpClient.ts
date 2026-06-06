@@ -47,7 +47,26 @@ type YtDlpFormatRow = {
 type YtDlpInfoJson = YtDlpFormatRow & {
   formats?: YtDlpFormatRow[];
   webpage_url?: string;
+  extractor?: string;
+  extractor_key?: string;
+  _type?: string;
 };
+
+function formatHasVideoCodec(format: YtDlpFormatRow): boolean {
+  return format.vcodec != null && format.vcodec !== "none";
+}
+
+/** @internal Exported for unit tests — true when yt-dlp resolved playable video for a URL. */
+export function infoHasYtDlpPlaybackHandler(info: YtDlpInfoJson, pageUrl: string): boolean {
+  if (pickYtDlpPlaybackFormat(info, pageUrl)) return true;
+
+  const formats = info.formats ?? [];
+  if (formats.some(formatHasVideoCodec)) return true;
+
+  if (info.url?.startsWith("http") && formatHasVideoCodec(info)) return true;
+
+  return false;
+}
 
 const apiRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const ytDlpCacheDir = path.join(apiRoot, ".cache", "yt-dlp");
@@ -230,6 +249,28 @@ export async function getYtDlpPlaybackUrl(
 ): Promise<string | null> {
   const playback = await getYtDlpPlayback(pageUrl, timeoutMs);
   return playback?.url ?? null;
+}
+
+/**
+ * Probe whether yt-dlp has a video handler for a generic web URL (Yahoo = yes, Medium article = no).
+ * Skips URLs that already match a dedicated platform embed handler.
+ */
+export async function probeYtDlpLinkHandler(
+  pageUrl: string,
+  timeoutMs = 12_000,
+): Promise<boolean> {
+  const normalized = normalizePlaybackPageUrl(pageUrl);
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), timeoutMs);
+  try {
+    const wrap = await ensureYtDlpBinary();
+    const raw = await wrap.getVideoInfo(["-j", "--no-playlist", "--simulate", normalized]);
+    return infoHasYtDlpPlaybackHandler(raw as YtDlpInfoJson, normalized);
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /** Resolve public video metadata via yt-dlp (works for YouTube, public Facebook reels, etc.). */

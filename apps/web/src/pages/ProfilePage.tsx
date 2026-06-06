@@ -12,6 +12,7 @@ import {
 } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
+  parseYtDlpWebLinkHandler,
   POST_CAPTION_MAX_LENGTH,
   resolveInlineVideoEmbed,
   TEXT_POST_BG_DEFAULT,
@@ -394,6 +395,8 @@ function SharedLinkEmbed(props: {
   description?: string | null;
   heroUrl?: string | null;
   compact?: boolean;
+  /** From link-preview API when available; otherwise probed on mount for feed cards. */
+  hasPlaybackHandler?: boolean;
 }) {
   const displayTitle = decodeHtmlEntities(props.title);
   const displayDescription = props.description?.trim() ? decodeHtmlEntities(props.description) : null;
@@ -402,9 +405,16 @@ function SharedLinkEmbed(props: {
   const [playerSession, setPlayerSession] = useState(0);
   const mixcloudIframeRef = useRef<HTMLIFrameElement | null>(null);
   const [embedActivated, setEmbedActivated] = useState(false);
+  const [probedHandler, setProbedHandler] = useState<boolean | null>(
+    props.hasPlaybackHandler ?? null,
+  );
   const audioOnly = isAudioOnlyLink(props.href);
   const videoEmbed = !audioOnly ? resolveInlineVideoEmbed(props.href) : null;
-  const inlinePlayable = audioOnly || videoEmbed != null;
+  const ytDlpHandler =
+    !audioOnly && !videoEmbed && (probedHandler ?? props.hasPlaybackHandler)
+      ? parseYtDlpWebLinkHandler(props.href, true)
+      : null;
+  const inlinePlayable = audioOnly || videoEmbed != null || ytDlpHandler != null;
   const soundCloudPlayer = audioOnly ? soundCloudEmbedUrl(props.href) : null;
   const mixcloudPlayer = audioOnly ? mixcloudEmbedUrl(props.href, showPlayer) : null;
 
@@ -413,7 +423,27 @@ function SharedLinkEmbed(props: {
     setShowPlayer(false);
     setEmbedActivated(false);
     setPlayerSession(0);
-  }, [props.href, props.heroUrl]);
+    setProbedHandler(props.hasPlaybackHandler ?? null);
+  }, [props.href, props.heroUrl, props.hasPlaybackHandler]);
+
+  useEffect(() => {
+    if (props.hasPlaybackHandler != null || audioOnly || videoEmbed != null) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const meta = await apiJson<{ hasPlaybackHandler: boolean }>("/api/link-preview", {
+          method: "POST",
+          body: JSON.stringify({ url: props.href }),
+        });
+        if (!cancelled) setProbedHandler(meta.hasPlaybackHandler);
+      } catch {
+        if (!cancelled) setProbedHandler(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [props.href, props.hasPlaybackHandler, audioOnly, videoEmbed]);
 
   useEffect(() => {
     if (!showPlayer || !mixcloudPlayer || !mixcloudIframeRef.current) return;
@@ -533,7 +563,14 @@ function SharedLinkEmbed(props: {
       ) : null}
       {inlinePlayable && showPlayer ? (
         <div className="border-t border-zinc-800/80 bg-zinc-900/40 p-3">
-          {embedActivated && videoEmbed?.kind === "native" ? (
+          {embedActivated && ytDlpHandler ? (
+            <NativeVideoPlayer
+              key={`ytdlp-${playerSession}`}
+              pageUrl={ytDlpHandler.pageUrl}
+              layout={ytDlpHandler.layout}
+              externalLabel={ytDlpHandler.externalLabel}
+            />
+          ) : embedActivated && videoEmbed?.kind === "native" ? (
             <NativeVideoPlayer
               key={`native-${playerSession}`}
               pageUrl={videoEmbed.pageUrl}
@@ -704,10 +741,21 @@ function AvatarFrame(props: { label: string; sizeClass?: string; ring?: boolean;
   );
 }
 
+function formatSyndicationWhen(iso: string): string {
+  return new Date(iso).toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 function PostCard(props: {
   post: PostDTO;
   canModeratePins: boolean;
   canModerateDeletes: boolean;
+  canManagePublicLink: boolean;
   canEditCaption: boolean;
   canShareToFriendsFeed: boolean;
   canReact: boolean;
@@ -726,6 +774,16 @@ function PostCard(props: {
   const [captionError, setCaptionError] = useState<string | null>(null);
   const sizeLabelTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [shareBusy, setShareBusy] = useState(false);
+  const [publicLinkOpen, setPublicLinkOpen] = useState(false);
+  const [publicLink, setPublicLink] = useState<{
+    url: string;
+    refreshedAt: string;
+    randomizeNames: boolean;
+  } | null>(null);
+  const [randomizeNames, setRandomizeNames] = useState(true);
+  const [publicLinkBusy, setPublicLinkBusy] = useState(false);
+  const [publicLinkError, setPublicLinkError] = useState<string | null>(null);
+  const [publicLinkCopied, setPublicLinkCopied] = useState(false);
   const busy = false;
   const photoCaption = props.post.photoCaption ?? (props.post.type === "PHOTO" ? props.post.text : null);
 
@@ -745,6 +803,74 @@ function PostCard(props: {
       if (sizeLabelTimer.current) clearTimeout(sizeLabelTimer.current);
     };
   }, []);
+
+  useEffect(() => {
+    if (!publicLinkOpen || !props.canManagePublicLink) return;
+    let cancelled = false;
+    void (async () => {
+      setPublicLinkBusy(true);
+      setPublicLinkError(null);
+      try {
+        const res = await apiJson<{
+          syndication: { url: string; refreshedAt: string; randomizeNames: boolean };
+        }>(`/api/posts/${props.post.id}/syndication`);
+        if (!cancelled) {
+          setPublicLink(res.syndication);
+          setRandomizeNames(res.syndication.randomizeNames);
+        }
+      } catch (e) {
+        if (cancelled) return;
+        if (e instanceof ApiError && e.status === 404) {
+          setPublicLink(null);
+          return;
+        }
+        setPublicLinkError(formatApiError(e, "Could not load public link"));
+      } finally {
+        if (!cancelled) setPublicLinkBusy(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [publicLinkOpen, props.canManagePublicLink, props.post.id]);
+
+  useEffect(() => {
+    if (!publicLinkOpen) {
+      setPublicLinkCopied(false);
+      setPublicLinkError(null);
+      setRandomizeNames(true);
+    }
+  }, [publicLinkOpen]);
+
+  async function refreshPublicLink(nextRandomizeNames = randomizeNames) {
+    setPublicLinkBusy(true);
+    setPublicLinkError(null);
+    try {
+      const res = await apiJson<{
+        syndication: { url: string; refreshedAt: string; randomizeNames: boolean };
+      }>(`/api/posts/${props.post.id}/syndication`, {
+        method: "POST",
+        body: JSON.stringify({ randomizeNames: nextRandomizeNames }),
+      });
+      setPublicLink(res.syndication);
+      setRandomizeNames(res.syndication.randomizeNames);
+    } catch (e) {
+      setPublicLinkError(formatApiError(e, "Could not update public link"));
+    } finally {
+      setPublicLinkBusy(false);
+    }
+  }
+
+  async function copyPublicLink() {
+    if (!publicLink?.url) return;
+    try {
+      await navigator.clipboard.writeText(publicLink.url);
+      setPublicLinkCopied(true);
+      window.setTimeout(() => setPublicLinkCopied(false), 1600);
+    } catch {
+      setPublicLinkError("Copy failed — select the URL and copy manually.");
+    }
+  }
 
   const photoSizeClass =
     photoSize === "small"
@@ -873,6 +999,11 @@ function PostCard(props: {
                 onClick={() => void setPinned(!props.post.isPinned)}
               >
                 {props.post.isPinned ? "Unpin" : "Pin"}
+              </Button>
+            ) : null}
+            {props.canManagePublicLink ? (
+              <Button variant="ghost" size="sm" onClick={() => setPublicLinkOpen(true)}>
+                Public link
               </Button>
             ) : null}
             {props.canModerateDeletes ? (
@@ -1079,6 +1210,91 @@ function PostCard(props: {
           />
         ) : null}
       </CardContent>
+
+      {publicLinkOpen ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={`public-link-title-${props.post.id}`}
+          onClick={() => setPublicLinkOpen(false)}
+        >
+          <Card
+            className="w-full max-w-lg border-zinc-700 bg-zinc-950 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
+              <div>
+                <div id={`public-link-title-${props.post.id}`} className="text-base font-semibold text-white">
+                  Public read-only link
+                </div>
+                <CardDescription className="mt-1">
+                  Anyone with this URL can view this post and its comments. Refresh after new comments are added.
+                </CardDescription>
+              </div>
+              <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => setPublicLinkOpen(false)}>
+                <X className="size-4" />
+                <span className="sr-only">Close</span>
+              </Button>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <label className="flex cursor-pointer items-start gap-2.5 text-sm text-zinc-300">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 size-4 rounded border-zinc-600 bg-zinc-900"
+                  checked={randomizeNames}
+                  onChange={(e) => setRandomizeNames(e.target.checked)}
+                />
+                <span>Randomize friends&apos; names?</span>
+              </label>
+              <p className="text-xs text-zinc-500">
+                Commenters get stable random aliases on the public page (post author stays visible). Refresh after
+                changing this or when new comments arrive.
+              </p>
+              {publicLinkBusy && !publicLink ? (
+                <div className="flex items-center gap-2 text-sm text-zinc-400">
+                  <Loader2 className="size-4 animate-spin" />
+                  Loading…
+                </div>
+              ) : publicLink ? (
+                <>
+                  <Input readOnly value={publicLink.url} className="font-mono text-xs" onFocus={(e) => e.target.select()} />
+                  <div className="text-xs text-zinc-500">
+                    Refreshed at {formatSyndicationWhen(publicLink.refreshedAt)}
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button size="sm" variant="secondary" disabled={publicLinkBusy} onClick={() => void copyPublicLink()}>
+                      {publicLinkCopied ? "Copied" : "Copy link"}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={publicLinkBusy}
+                      onClick={() => void refreshPublicLink(randomizeNames)}
+                    >
+                      {publicLinkBusy ? "Refreshing…" : "Refresh snapshot"}
+                    </Button>
+                    <Button size="sm" variant="ghost" asChild>
+                      <a href={publicLink.url} target="_blank" rel="noopener noreferrer">
+                        <ExternalLink className="mr-1 inline size-3.5" />
+                        Open page
+                      </a>
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <div className="space-y-3">
+                  <p className="text-sm text-zinc-400">No public link yet for this post.</p>
+                  <Button size="sm" disabled={publicLinkBusy} onClick={() => void refreshPublicLink(randomizeNames)}>
+                    {publicLinkBusy ? "Creating…" : "Create public link"}
+                  </Button>
+                </div>
+              )}
+              {publicLinkError ? <div className="text-sm text-red-200">{publicLinkError}</div> : null}
+            </CardContent>
+          </Card>
+        </div>
+      ) : null}
     </Card>
   );
 }
@@ -1219,7 +1435,7 @@ export function ProfilePage() {
   const [composerPhotoFile, setComposerPhotoFile] = useState<File | null>(null);
   const [composerPhotoPreviewUrl, setComposerPhotoPreviewUrl] = useState<string | null>(null);
   const [composerBusy, setComposerBusy] = useState(false);
-  const [composerTab, setComposerTab] = useState<"TEXT" | "PHOTO" | "VIDEO_LINK_VIDEO" | "VIDEO_LINK_WEB">("TEXT");
+  const [composerTab, setComposerTab] = useState<"TEXT" | "PHOTO" | "WEB_LINK">("TEXT");
   const [composerErr, setComposerErr] = useState<string | null>(null);
   const [fbImportOpen, setFbImportOpen] = useState(false);
   const [aiSummaryOpen, setAiSummaryOpen] = useState(false);
@@ -1243,12 +1459,13 @@ export function ProfilePage() {
     title: string | null;
     description: string | null;
     remoteImageUrl: string | null;
+    hasPlaybackHandler: boolean;
   };
   const linkPreviewTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [linkComposerPreview, setLinkComposerPreview] = useState<LinkComposerPreview | null>(null);
 
   useEffect(() => {
-    if (composerTab !== "VIDEO_LINK_VIDEO" && composerTab !== "VIDEO_LINK_WEB") {
+    if (composerTab !== "WEB_LINK") {
       setLinkComposerPreview(null);
       return;
     }
@@ -1623,14 +1840,19 @@ export function ProfilePage() {
               <Link to="/messages">Messages</Link>
             </Button>
             {profile?.meta.isSelf ? (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => setAiSummaryOpen(true)}
-              >
-                AI Summary
-              </Button>
+              <>
+                <Button asChild variant="secondary" size="sm">
+                  <Link to="/settings">Settings</Link>
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setAiSummaryOpen(true)}
+                >
+                  AI Summary
+                </Button>
+              </>
             ) : null}
             <Button variant="outline" size="sm" title="later" disabled>
               Add to story
@@ -1826,8 +2048,7 @@ export function ProfilePage() {
                       <TabsList className="w-full justify-between md:w-auto">
                         <TabsTrigger value="TEXT">Text</TabsTrigger>
                         <TabsTrigger value="PHOTO">Photo</TabsTrigger>
-                        <TabsTrigger value="VIDEO_LINK_VIDEO">Video link</TabsTrigger>
-                        <TabsTrigger value="VIDEO_LINK_WEB">Web link</TabsTrigger>
+                        <TabsTrigger value="WEB_LINK">Web link</TabsTrigger>
                       </TabsList>
                       {profile.meta.isSelf && me?.hasRealFacebookAccount ? (
                         <Button
@@ -1910,8 +2131,8 @@ export function ProfilePage() {
                     <TabsContent value="PHOTO">
                       <div className="grid gap-2">
                         <div className="text-xs leading-relaxed text-zinc-500">
-                          Paste an image from your clipboard or upload a file. Photos are compressed to roughly 500KB when
-                          possible; otherwise you’ll get guidance to share a hosted link instead (Phase 2+).
+                          Paste from your clipboard or upload a file — handled in your browser until you post. Photos are
+                          compressed to roughly 500KB when possible.
                         </div>
                         <div className="flex flex-wrap gap-2">
                           <Input
@@ -1983,15 +2204,16 @@ export function ProfilePage() {
                       </div>
                     </TabsContent>
 
-                    <TabsContent value="VIDEO_LINK_VIDEO">
+                    <TabsContent value="WEB_LINK">
                       <div className="grid gap-2">
                         <div className="text-xs leading-relaxed text-zinc-500">
-                          Share a video page URL. A fixed preview card shows hero image and slug line when available.
+                          Share any web page URL — articles, videos, and more. We build a preview card and detect inline
+                          playback when a handler exists for that link.
                         </div>
                         <Input
                           value={composerVideo}
                           onChange={(e) => setComposerVideo(e.target.value)}
-                          placeholder="https://youtube.com/…"
+                          placeholder="https://example.com/…"
                           inputMode="url"
                         />
                         {linkComposerPreview && composerVideo.trim() ? (
@@ -2005,6 +2227,7 @@ export function ProfilePage() {
                               title={linkComposerPreview.title ?? linkComposerPreview.hostname}
                               description={linkComposerPreview.description}
                               heroUrl={linkComposerPreview.remoteImageUrl}
+                              hasPlaybackHandler={linkComposerPreview.hasPlaybackHandler}
                               compact
                             />
                           </div>
@@ -2018,47 +2241,7 @@ export function ProfilePage() {
                           disabled={composerBusy || !composerVideo.trim() || !profile.meta.canViewContent}
                           onClick={() => void createTextOrVideo("VIDEO_LINK")}
                         >
-                          Post video link
-                        </Button>
-                      </div>
-                    </TabsContent>
-
-                    <TabsContent value="VIDEO_LINK_WEB">
-                      <div className="grid gap-2">
-                        <div className="text-xs leading-relaxed text-zinc-500">
-                          Share any web page URL. A fixed preview card shows hero image and slug line when available.
-                        </div>
-                        <Input
-                          value={composerVideo}
-                          onChange={(e) => setComposerVideo(e.target.value)}
-                          placeholder="https://example.com/article"
-                          inputMode="url"
-                        />
-                        {linkComposerPreview && composerVideo.trim() ? (
-                          <div className="rounded-lg border border-zinc-800/90 bg-zinc-950/50 p-2">
-                            <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
-                              Preview (hero + slug)
-                            </div>
-                            <SharedLinkEmbed
-                              href={composerVideo.trim()}
-                              hostname={linkComposerPreview.hostname}
-                              title={linkComposerPreview.title ?? linkComposerPreview.hostname}
-                              description={linkComposerPreview.description}
-                              heroUrl={linkComposerPreview.remoteImageUrl}
-                              compact
-                            />
-                          </div>
-                        ) : null}
-                        <Textarea
-                          placeholder="Optional message"
-                          value={composerText}
-                          onChange={(e) => setComposerText(e.target.value)}
-                        />
-                        <Button
-                          disabled={composerBusy || !composerVideo.trim() || !profile.meta.canViewContent}
-                          onClick={() => void createTextOrVideo("VIDEO_LINK")}
-                        >
-                          Post web link
+                          Post link
                         </Button>
                       </div>
                     </TabsContent>
@@ -2158,6 +2341,7 @@ export function ProfilePage() {
                       post={p}
                       canModeratePins={Boolean(pageOwnerPins && profile.meta.canViewContent && feedTab === "my")}
                       canModerateDeletes={canDeletePost(p) && feedTab === "my"}
+                      canManagePublicLink={canDeletePost(p) && feedTab === "my"}
                       canEditCaption={canDeletePost(p) && feedTab === "my"}
                       canShareToFriendsFeed={Boolean(
                         profile.meta.isSelf && feedTab === "my" && p.profileOwnerId === profile.user.id,

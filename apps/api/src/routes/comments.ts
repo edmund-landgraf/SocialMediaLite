@@ -4,14 +4,8 @@ import { commentTextSchema } from "@socialmedialite/shared";
 import { prisma } from "../lib/prisma.js";
 import { requireAuth } from "../middleware/auth.js";
 import { assertCanAccessProfile } from "../services/access.js";
+import { authorSelect, serializeComment } from "../services/commentSerializer.js";
 import { isOfflineTestUserSession, respondOfflineWritesDisabled } from "../services/offlineTestUser.js";
-
-const authorSelect = {
-  id: true,
-  username: true,
-  displayName: true,
-  profilePicUrl: true,
-} as const;
 
 export const commentsRouter = Router();
 commentsRouter.use(requireAuth);
@@ -44,7 +38,7 @@ commentsRouter.get("/posts/:postId/comments", async (req, res) => {
     include: { author: { select: authorSelect } },
   });
 
-  res.json({ comments: rows });
+  res.json({ comments: rows.map(serializeComment) });
 });
 
 commentsRouter.post("/posts/:postId/comments", async (req, res) => {
@@ -113,5 +107,5 @@ commentsRouter.post("/posts/:postId/comments", async (req, res) => {
     include: { author: { select: authorSelect } },
   });
 
-  res.status(201).json({ comment: created });
+  res.status(201).json({ comment: serializeComment(created) });
 });

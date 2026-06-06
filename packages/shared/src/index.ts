@@ -42,6 +42,14 @@ export {
 
 export { normalizePlaybackPageUrl } from "./playbackUrl.js";
 
+export {
+  parseKnownLinkHandler,
+  parseYtDlpWebLinkHandler,
+  resolveWebLinkHandler,
+  type ParsedLinkHandler,
+  type YtDlpWebLinkHandler,
+} from "./linkHandlers.js";
+
 export const usernameSchema = z
   .string()
   .trim()
@@ -137,10 +145,46 @@ export {
 } from "./messages.js";
 
 export {
+  MESSAGE_FOLDER_NAME_MAX_LENGTH,
+  MESSAGE_CUSTOM_FOLDERS_MAX,
+  MESSAGE_TRASH_RETENTION_DAYS,
+  MESSAGE_TRASH_RETENTION_MS,
+  isTrashRetentionExpired,
+  messageFolderNameSchema,
+  createMessageFolderSchema,
+  assignThreadFolderSchema,
+  type MessageFolderKind,
+  type MessageFolderDto,
+} from "./messageFolders.js";
+
+export {
   escapeHtml,
   linkifyUnwhelmText,
   type LinkifySegment,
 } from "./linkifyUnwhelm.js";
+
+export {
+  buildPostSyndicationCommentTree,
+  postSyndicationSnapshotSchema,
+  type PostSyndicationAuthor,
+  type PostSyndicationCommentSnapshot,
+  type PostSyndicationCommentTreeNode,
+  type PostSyndicationPostSnapshot,
+  type PostSyndicationSnapshot,
+} from "./postSyndication.js";
+
+export {
+  generatePostSyndicationAlias,
+  postSyndicationUpsertSchema,
+  type PostSyndicationUpsertInput,
+} from "./postSyndicationAliases.js";
+
+export {
+  DELETED_COMMENT_TEXT,
+  DELETED_USER_DISPLAY_NAME,
+  deleteAccountSchema,
+  type DeleteAccountInput,
+} from "./deletedUser.js";
 
 export {
   liveChatPresenceParamsSchema,
