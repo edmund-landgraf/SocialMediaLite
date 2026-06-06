@@ -42,12 +42,15 @@ These are enough to read:
 
 In **App Settings > Basic**:
 
-1. Add App Domains for your environment.
-2. Set Privacy Policy URL.
-3. Set Terms of Service URL (recommended).
-4. Select a category.
+1. Add App Domains: `unwhelm.online` (and `localhost` for dev).
+2. Set **Privacy Policy URL**: `https://unwhelm.online/help/privacy.html`
+3. Set **User data deletion URL**: `https://unwhelm.online/help/data-deletion.html`
+4. Set Terms of Service URL (optional; can point at privacy page until you add terms).
+5. Select a category (e.g. Social).
 
-These are often required before app review/public mode.
+Static pages live in `apps/web/public/help/` and deploy with the nginx static bundle.
+
+These are required on the Meta **Publish** checklist before Live mode and App Review.
 
 ## 5) Add environment variables to SocialMediaLite
 
