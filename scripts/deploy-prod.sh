@@ -17,10 +17,9 @@
 #   git pull origin main
 # (package-lock.json drift from VPS npm install is auto-restored by this script.)
 #
-# If pull fails with "untracked working tree files would be overwritten", a script
-# was copied to the VPS before it landed in git — safe to remove and pull:
-#   rm scripts/collect-prod-logs.sh   # example
-#   git pull origin main
+# If pull fails with "untracked working tree files would be overwritten", an untracked
+# copy of a script (scp'd before push) blocks merge — remove only that untracked file.
+# Do NOT rm tracked scripts; use `git restore scripts/` if deleted by mistake.
 
 set -euo pipefail
 
@@ -58,6 +57,13 @@ if [[ "${SKIP_GIT_PULL:-}" != "1" ]]; then
   echo "==> git pull"
   git pull origin main
 fi
+
+for f in scripts/collect-prod-logs.sh scripts/sync-nginx-syndicate.sh scripts/ensure-nginx-ssl.sh; do
+  if [[ ! -f "$f" ]] && git cat-file -e "HEAD:$f" 2>/dev/null; then
+    echo "==> restoring missing tracked script: $f"
+    git restore -- "$f"
+  fi
+done
 
 # VPS shells often export NODE_ENV=production, which makes npm omit devDependencies.
 # TypeScript, Vite, and @types/* are required to compile — install them for the build.
