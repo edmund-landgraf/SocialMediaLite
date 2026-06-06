@@ -58,6 +58,11 @@ echo "==> publish web dist -> $WEB_ROOT"
 sudo mkdir -p "$WEB_ROOT"
 sudo rsync -a --delete apps/web/dist/ "$WEB_ROOT/"
 
+# Patch live nginx only (never overwrite ssl_certificate paths). See scripts/sync-nginx-syndicate.sh
+if [[ "${SKIP_NGINX_RELOAD:-}" != "1" ]] && command -v nginx >/dev/null 2>&1; then
+  bash "$ROOT/scripts/sync-nginx-syndicate.sh"
+fi
+
 if [[ "$(uname -s)" == "Linux" ]]; then
   echo "==> yt-dlp / ffmpeg check (inline video playback)"
   if bash scripts/check-ytdlp-prod.sh; then
