@@ -12,9 +12,10 @@
 #   SKIP_GIT_PULL=1 ./scripts/deploy-prod.sh
 #
 # Do not edit tracked files on the VPS (e.g. LoginPage.tsx). Fix in dev, push, then deploy.
-# If git pull fails due to local edits, restore and pull:
-#   git restore apps/web/src/pages/LoginPage.tsx package-lock.json
+# If git pull fails due to LoginPage.tsx edits on the VPS, restore and pull:
+#   git restore apps/web/src/pages/LoginPage.tsx
 #   git pull origin main
+# (package-lock.json drift from VPS npm install is auto-restored by this script.)
 #
 # If pull fails with "untracked working tree files would be overwritten", a script
 # was copied to the VPS before it landed in git — safe to remove and pull:
@@ -34,12 +35,16 @@ echo "    repo:     $ROOT"
 echo "    web root: $WEB_ROOT"
 
 if [[ "${SKIP_GIT_PULL:-}" != "1" ]]; then
-  dirty="$(git status --porcelain -- apps/web/src/pages/LoginPage.tsx package-lock.json 2>/dev/null || true)"
-  if [[ -n "$dirty" ]]; then
-    echo "WARN: local VPS edits would block git pull (common: LoginPage help link, package-lock from npm install)"
-    git diff --stat -- apps/web/src/pages/LoginPage.tsx package-lock.json 2>/dev/null || true
-    echo "    Restore tracked files, then re-run deploy:"
-    echo "      git restore apps/web/src/pages/LoginPage.tsx package-lock.json"
+  if [[ -n "$(git status --porcelain -- package-lock.json 2>/dev/null || true)" ]]; then
+    echo "==> restoring package-lock.json (VPS npm install drift — use repo lockfile)"
+    git restore package-lock.json
+  fi
+  login_dirty="$(git status --porcelain -- apps/web/src/pages/LoginPage.tsx 2>/dev/null || true)"
+  if [[ -n "$login_dirty" ]]; then
+    echo "WARN: local VPS edits to LoginPage.tsx would block git pull"
+    git diff --stat -- apps/web/src/pages/LoginPage.tsx 2>/dev/null || true
+    echo "    Restore tracked file, then re-run deploy:"
+    echo "      git restore apps/web/src/pages/LoginPage.tsx"
     echo "      git pull origin main"
     exit 1
   fi
