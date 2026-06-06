@@ -59,8 +59,10 @@ if [[ "${SKIP_GIT_PULL:-}" != "1" ]]; then
   git pull origin main
 fi
 
-echo "==> npm install"
-npm install
+# VPS shells often export NODE_ENV=production, which makes npm omit devDependencies.
+# TypeScript, Vite, and @types/* are required to compile — install them for the build.
+echo "==> npm install (include devDependencies for compile)"
+npm install --include=dev
 
 echo "==> build (shared, api, web)"
 npm run build
