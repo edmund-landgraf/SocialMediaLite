@@ -15,6 +15,11 @@
 # If git pull fails due to local edits, restore and pull:
 #   git restore apps/web/src/pages/LoginPage.tsx package-lock.json
 #   git pull origin main
+#
+# If pull fails with "untracked working tree files would be overwritten", a script
+# was copied to the VPS before it landed in git — safe to remove and pull:
+#   rm scripts/collect-prod-logs.sh   # example
+#   git pull origin main
 
 set -euo pipefail
 
@@ -38,6 +43,13 @@ if [[ "${SKIP_GIT_PULL:-}" != "1" ]]; then
     echo "      git pull origin main"
     exit 1
   fi
+  # Untracked copies of repo scripts (scp'd before push) block git pull.
+  for f in scripts/collect-prod-logs.sh scripts/sync-nginx-syndicate.sh scripts/ensure-nginx-ssl.sh; do
+    if [[ -f "$f" ]] && ! git ls-files --error-unmatch "$f" &>/dev/null; then
+      echo "==> removing untracked $f (repo version replaces on pull)"
+      rm "$f"
+    fi
+  done
   echo "==> git pull"
   git pull origin main
 fi
