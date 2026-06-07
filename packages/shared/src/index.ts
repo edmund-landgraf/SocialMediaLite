@@ -180,6 +180,16 @@ export {
 } from "./postSyndicationAliases.js";
 
 export {
+  SYNDICATION_PUSH_PARTNER_IDS,
+  buildSyndicationPushMessage,
+  isSyndicationPushPartnerId,
+  type SyndicationPushAction,
+  type SyndicationPushMethod,
+  type SyndicationPushPartnerId,
+  type SyndicationPushPartnerMeta,
+} from "./syndicationPush.js";
+
+export {
   DELETED_COMMENT_TEXT,
   DELETED_USER_DISPLAY_NAME,
   deleteAccountSchema,

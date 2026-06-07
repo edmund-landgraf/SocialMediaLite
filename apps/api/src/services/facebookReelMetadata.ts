@@ -2,6 +2,7 @@ import {
   normalizeFacebookReelUrl,
   parseFacebookReelId,
 } from "@socialmedialite/shared";
+import { logFacebookLoginApp } from "./facebookAppLog.js";
 import { getYtDlpVideoInfo, pickYtDlpThumbnail } from "./ytDlpClient.js";
 
 export type FacebookReelMetadata = {
@@ -405,6 +406,11 @@ export async function resolveFacebookReel(
 
   const skipGraph = normalizedOpts.skipGraphSideload !== false && !graphSideloadEnabled();
   if (!skipGraph && !isPublicReel(merged, signals)) {
+    void logFacebookLoginApp({
+      action: "graph.reel.resolve",
+      graphEndpoint: `/${reelId}`,
+      meta: { tokenKind: "user" },
+    });
     const userGraph = await sideloadVideoNode(userAccessToken, reelId);
     merged = mergeMetadata(reelId, merged, userGraph.metadata);
     signals = {
@@ -417,6 +423,11 @@ export async function resolveFacebookReel(
     if (!isPublicReel(merged, signals)) {
       const appToken = appAccessToken();
       if (appToken && appToken !== userAccessToken) {
+        void logFacebookLoginApp({
+          action: "graph.reel.resolve",
+          graphEndpoint: `/${reelId}`,
+          meta: { tokenKind: "app" },
+        });
         const appGraph = await sideloadVideoNode(appToken, reelId);
         merged = mergeMetadata(reelId, merged, appGraph.metadata);
         signals = {

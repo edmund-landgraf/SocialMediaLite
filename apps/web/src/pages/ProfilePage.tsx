@@ -784,7 +784,9 @@ function PostCard(props: {
   const [publicLinkBusy, setPublicLinkBusy] = useState(false);
   const [publicLinkError, setPublicLinkError] = useState<string | null>(null);
   const [publicLinkCopied, setPublicLinkCopied] = useState(false);
+  const [publicLinkDeleteConfirm, setPublicLinkDeleteConfirm] = useState(false);
   const busy = false;
+  const publicLinkActive = !!publicLink;
   const photoCaption = props.post.photoCaption ?? (props.post.type === "PHOTO" ? props.post.text : null);
 
   useEffect(() => {
@@ -805,7 +807,7 @@ function PostCard(props: {
   }, []);
 
   useEffect(() => {
-    if (!publicLinkOpen || !props.canManagePublicLink) return;
+    if (!props.canManagePublicLink) return;
     let cancelled = false;
     void (async () => {
       setPublicLinkBusy(true);
@@ -832,15 +834,23 @@ function PostCard(props: {
     return () => {
       cancelled = true;
     };
-  }, [publicLinkOpen, props.canManagePublicLink, props.post.id]);
+  }, [props.canManagePublicLink, props.post.id]);
 
   useEffect(() => {
     if (!publicLinkOpen) {
       setPublicLinkCopied(false);
       setPublicLinkError(null);
-      setRandomizeNames(true);
     }
   }, [publicLinkOpen]);
+
+  useEffect(() => {
+    if (!publicLinkDeleteConfirm) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setPublicLinkDeleteConfirm(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [publicLinkDeleteConfirm]);
 
   async function refreshPublicLink(nextRandomizeNames = randomizeNames) {
     setPublicLinkBusy(true);
@@ -856,6 +866,33 @@ function PostCard(props: {
       setRandomizeNames(res.syndication.randomizeNames);
     } catch (e) {
       setPublicLinkError(formatApiError(e, "Could not update public link"));
+    } finally {
+      setPublicLinkBusy(false);
+    }
+  }
+
+  async function enablePublicLink() {
+    if (publicLinkBusy || publicLink) return;
+    await refreshPublicLink(randomizeNames);
+    setPublicLinkOpen(true);
+  }
+
+  function requestDisablePublicLink() {
+    if (publicLinkBusy || !publicLink) return;
+    setPublicLinkDeleteConfirm(true);
+  }
+
+  async function confirmDisablePublicLink() {
+    if (publicLinkBusy || !publicLink) return;
+    setPublicLinkBusy(true);
+    setPublicLinkError(null);
+    try {
+      await apiFetch(`/api/posts/${props.post.id}/syndication`, { method: "DELETE" });
+      setPublicLink(null);
+      setPublicLinkOpen(false);
+      setPublicLinkDeleteConfirm(false);
+    } catch (e) {
+      setPublicLinkError(formatApiError(e, "Could not remove public link"));
     } finally {
       setPublicLinkBusy(false);
     }
@@ -1002,9 +1039,46 @@ function PostCard(props: {
               </Button>
             ) : null}
             {props.canManagePublicLink ? (
-              <Button variant="ghost" size="sm" onClick={() => setPublicLinkOpen(true)}>
-                Public link
-              </Button>
+              <div className="flex items-center gap-1.5">
+                <label className="flex cursor-pointer items-center gap-2 text-sm text-zinc-300">
+                  <span
+                    className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${
+                      publicLinkActive ? "bg-emerald-600" : "bg-zinc-700"
+                    } ${publicLinkBusy ? "opacity-60" : ""}`}
+                  >
+                    <input
+                      type="checkbox"
+                      role="switch"
+                      aria-checked={publicLinkActive}
+                      aria-label="Public read-only link"
+                      className="sr-only"
+                      checked={publicLinkActive}
+                      disabled={publicLinkBusy}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          void enablePublicLink();
+                          return;
+                        }
+                        requestDisablePublicLink();
+                      }}
+                    />
+                    <span
+                      className={`inline-block size-4 rounded-full bg-white shadow transition-transform ${
+                        publicLinkActive ? "translate-x-4" : "translate-x-0.5"
+                      }`}
+                    />
+                  </span>
+                  <button
+                    type="button"
+                    className="hover:text-white disabled:cursor-default disabled:hover:text-zinc-300"
+                    disabled={!publicLinkActive}
+                    onClick={() => publicLinkActive && setPublicLinkOpen(true)}
+                  >
+                    Public
+                  </button>
+                </label>
+                {publicLinkBusy ? <Loader2 className="size-3.5 animate-spin text-zinc-500" /> : null}
+              </div>
             ) : null}
             {props.canModerateDeletes ? (
               <Button variant="ghost" size="sm" onClick={() => void del()}>
@@ -1211,7 +1285,51 @@ function PostCard(props: {
         ) : null}
       </CardContent>
 
-      {publicLinkOpen ? (
+      {publicLinkDeleteConfirm ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+          role="alertdialog"
+          aria-modal="true"
+          aria-labelledby={`public-link-delete-title-${props.post.id}`}
+          onClick={() => !publicLinkBusy && setPublicLinkDeleteConfirm(false)}
+        >
+          <Card
+            className="w-full max-w-md border-zinc-700 bg-zinc-950 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <CardHeader className="space-y-0">
+              <div id={`public-link-delete-title-${props.post.id}`} className="text-base font-semibold text-white">
+                Turn off public link?
+              </div>
+              <CardDescription className="mt-2 text-zinc-400">
+                The public page will be deleted immediately. The frozen snapshot shown on that page — post text,
+                comments, and aliases — cannot be recovered. Anyone with the old URL will get a not-found page.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex flex-wrap justify-end gap-2">
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={publicLinkBusy}
+                onClick={() => setPublicLinkDeleteConfirm(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                variant="destructive"
+                disabled={publicLinkBusy}
+                onClick={() => void confirmDisablePublicLink()}
+              >
+                {publicLinkBusy ? "Deleting…" : "Delete public page"}
+              </Button>
+            </CardContent>
+            {publicLinkError ? <div className="px-6 pb-4 text-sm text-red-200">{publicLinkError}</div> : null}
+          </Card>
+        </div>
+      ) : null}
+
+      {publicLinkOpen && publicLink ? (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
           role="dialog"
@@ -1251,45 +1369,29 @@ function PostCard(props: {
                 Commenters get stable random aliases on the public page (post author stays visible). Refresh after
                 changing this or when new comments arrive.
               </p>
-              {publicLinkBusy && !publicLink ? (
-                <div className="flex items-center gap-2 text-sm text-zinc-400">
-                  <Loader2 className="size-4 animate-spin" />
-                  Loading…
-                </div>
-              ) : publicLink ? (
-                <>
-                  <Input readOnly value={publicLink.url} className="font-mono text-xs" onFocus={(e) => e.target.select()} />
-                  <div className="text-xs text-zinc-500">
-                    Refreshed at {formatSyndicationWhen(publicLink.refreshedAt)}
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <Button size="sm" variant="secondary" disabled={publicLinkBusy} onClick={() => void copyPublicLink()}>
-                      {publicLinkCopied ? "Copied" : "Copy link"}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      disabled={publicLinkBusy}
-                      onClick={() => void refreshPublicLink(randomizeNames)}
-                    >
-                      {publicLinkBusy ? "Refreshing…" : "Refresh snapshot"}
-                    </Button>
-                    <Button size="sm" variant="ghost" asChild>
-                      <a href={publicLink.url} target="_blank" rel="noopener noreferrer">
-                        <ExternalLink className="mr-1 inline size-3.5" />
-                        Open page
-                      </a>
-                    </Button>
-                  </div>
-                </>
-              ) : (
-                <div className="space-y-3">
-                  <p className="text-sm text-zinc-400">No public link yet for this post.</p>
-                  <Button size="sm" disabled={publicLinkBusy} onClick={() => void refreshPublicLink(randomizeNames)}>
-                    {publicLinkBusy ? "Creating…" : "Create public link"}
-                  </Button>
-                </div>
-              )}
+              <Input readOnly value={publicLink.url} className="font-mono text-xs" onFocus={(e) => e.target.select()} />
+              <div className="text-xs text-zinc-500">
+                Refreshed at {formatSyndicationWhen(publicLink.refreshedAt)}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" variant="secondary" disabled={publicLinkBusy} onClick={() => void copyPublicLink()}>
+                  {publicLinkCopied ? "Copied" : "Copy link"}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={publicLinkBusy}
+                  onClick={() => void refreshPublicLink(randomizeNames)}
+                >
+                  {publicLinkBusy ? "Refreshing…" : "Refresh snapshot"}
+                </Button>
+                <Button size="sm" variant="ghost" asChild>
+                  <a href={publicLink.url} target="_blank" rel="noopener noreferrer">
+                    <ExternalLink className="mr-1 inline size-3.5" />
+                    Open page
+                  </a>
+                </Button>
+              </div>
               {publicLinkError ? <div className="text-sm text-red-200">{publicLinkError}</div> : null}
             </CardContent>
           </Card>

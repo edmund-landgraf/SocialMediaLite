@@ -14,6 +14,7 @@ import {
 } from "../services/facebookImport.js";
 import { probeFacebookImportAccessToken } from "../services/facebookAccessToken.js";
 import { downloadFacebookImage } from "../services/facebookReelMetadata.js";
+import { logFacebookLoginApp } from "../services/facebookAppLog.js";
 
 export const facebookImportRouter = Router();
 facebookImportRouter.use(requireAuth);
@@ -39,6 +40,11 @@ async function requireRealFacebookUser(userId: string) {
 
 facebookImportRouter.get("/facebook/import/eligibility", async (req, res) => {
   const viewerId = req.session.userId!;
+  void logFacebookLoginApp({
+    action: "import.eligibility",
+    requestPath: req.path,
+    userId: viewerId,
+  });
   const userCheck = await requireRealFacebookUser(viewerId);
   if (!userCheck.ok) {
     res.json({ eligible: false, reason: userCheck.error });
@@ -112,6 +118,11 @@ facebookImportRouter.get("/facebook/preview-image", async (req, res, next) => {
 });
 
 facebookImportRouter.get("/facebook/posts", async (req, res, next) => {
+  void logFacebookLoginApp({
+    action: "import.list_posts",
+    requestPath: req.path,
+    userId: req.session.userId ?? null,
+  });
   if (isOfflineTestUserSession(req)) {
     res.json({ posts: [] });
     return;
@@ -138,6 +149,11 @@ facebookImportRouter.get("/facebook/posts", async (req, res, next) => {
 });
 
 facebookImportRouter.post("/facebook/posts/search", async (req, res, next) => {
+  void logFacebookLoginApp({
+    action: "import.search_posts",
+    requestPath: req.path,
+    userId: req.session.userId ?? null,
+  });
   if (isOfflineTestUserSession(req)) {
     respondOfflineWritesDisabled(res);
     return;
@@ -197,6 +213,11 @@ facebookImportRouter.get("/facebook/posts/:fbPostId/preview", async (req, res, n
 });
 
 facebookImportRouter.post("/facebook/import", async (req, res, next) => {
+  void logFacebookLoginApp({
+    action: "import.post_to_wall",
+    requestPath: req.path,
+    userId: req.session.userId ?? null,
+  });
   if (isOfflineTestUserSession(req)) {
     respondOfflineWritesDisabled(res);
     return;

@@ -42,7 +42,7 @@ These are enough to read:
 
 In **App Settings > Basic**:
 
-1. Add App Domains: `unwhelm.online` (and `localhost` for dev).
+1. Add App Domains: `unwhelm.online` only (Meta does **not** allow `localhost` in App Domains; localhost OAuth redirect URIs are auto-allowed in Development mode).
 2. Set **Privacy Policy URL**: `https://unwhelm.online/help/privacy.html`
 3. Set **User data deletion URL**: `https://unwhelm.online/help/data-deletion.html`
 4. Set Terms of Service URL (optional; can point at privacy page until you add terms).

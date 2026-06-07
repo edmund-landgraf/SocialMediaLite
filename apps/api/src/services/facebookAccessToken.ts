@@ -1,3 +1,5 @@
+import { logFacebookLoginApp } from "./facebookAppLog.js";
+
 function graphVersion(): string {
   return process.env.FACEBOOK_GRAPH_API_VERSION?.trim() || "v20.0";
 }
@@ -19,7 +21,15 @@ export async function probeFacebookImportAccessToken(
   url.searchParams.set("access_token", accessToken);
 
   const res = await fetch(url, { method: "GET" });
-  if (res.ok) return { ok: true };
+  if (res.ok) {
+    void logFacebookLoginApp({
+      action: "graph.me_posts.probe",
+      graphEndpoint: "/me/posts",
+      httpStatus: res.status,
+      success: true,
+    });
+    return { ok: true };
+  }
 
   const body = await res.text();
   try {
@@ -29,6 +39,14 @@ export async function probeFacebookImportAccessToken(
     const err = parsed.error;
     const message = err?.message ?? `HTTP ${res.status}`;
     if (err?.code === 190) {
+      void logFacebookLoginApp({
+        action: "graph.me_posts.probe",
+        graphEndpoint: "/me/posts",
+        httpStatus: res.status,
+        success: false,
+        error: message,
+        meta: { expired: true },
+      });
       return {
         ok: false,
         expired: true,
@@ -36,14 +54,34 @@ export async function probeFacebookImportAccessToken(
       };
     }
     if (err?.code === 10 || err?.code === 200 || err?.type === "OAuthException") {
+      void logFacebookLoginApp({
+        action: "graph.me_posts.probe",
+        graphEndpoint: "/me/posts",
+        httpStatus: res.status,
+        success: false,
+        error: message,
+      });
       return {
         ok: false,
         reason:
           "Timeline import needs permission to read your Facebook posts. Connect once to enable import.",
       };
     }
+    void logFacebookLoginApp({
+      action: "graph.me_posts.probe",
+      graphEndpoint: "/me/posts",
+      httpStatus: res.status,
+      success: false,
+      error: message,
+    });
     return { ok: false, reason: message };
   } catch {
+    void logFacebookLoginApp({
+      action: "graph.me_posts.probe",
+      graphEndpoint: "/me/posts",
+      success: false,
+      error: "invalid_json",
+    });
     return { ok: false, reason: "Could not verify Facebook access." };
   }
 }

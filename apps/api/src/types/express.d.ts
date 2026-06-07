@@ -14,6 +14,16 @@ declare module "express-session" {
     oauthReturnTo?: string;
     /** Short-lived token from Facebook OAuth — used for Graph import during session. */
     facebookAccessToken?: string;
+    /** Syndication push (WritePostsOnly) OAuth state + target token. */
+    syndicationPushOAuthState?: string;
+    syndicationPushToken?: string;
+    syndicationPushPartnerId?: string;
+    /** Cached Page token from WritePostsOnly OAuth — enables one-click republish in same session. */
+    facebookWritePostsPage?: {
+      pageId: string;
+      pageName: string;
+      pageAccessToken: string;
+    };
   }
 }
 

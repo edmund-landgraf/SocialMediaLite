@@ -18,6 +18,7 @@ import {
 } from "./facebookReelMetadata.js";
 import { prisma } from "../lib/prisma.js";
 import type { PostType } from "@prisma/client";
+import { logFacebookLoginApp } from "./facebookAppLog.js";
 
 export type FacebookPostPreview = {
   id: string;
@@ -314,11 +315,36 @@ export async function fetchFacebookGraphPosts(
   const res = await fetch(url);
   const body = await res.text();
   if (!res.ok) {
+    void logFacebookLoginApp({
+      action: "graph.me_posts.fetch",
+      graphEndpoint: "/me/posts",
+      httpStatus: res.status,
+      success: false,
+      error: body.slice(0, 300),
+      meta: { limit },
+    });
     throw formatFacebookGraphError("Facebook Graph API failed", res.status, body);
   }
 
   const payload = JSON.parse(body) as { data?: GraphPost[]; error?: { message?: string } };
-  if (payload.error?.message) throw new Error(payload.error.message);
+  if (payload.error?.message) {
+    void logFacebookLoginApp({
+      action: "graph.me_posts.fetch",
+      graphEndpoint: "/me/posts",
+      httpStatus: res.status,
+      success: false,
+      error: payload.error.message,
+      meta: { limit },
+    });
+    throw new Error(payload.error.message);
+  }
+  void logFacebookLoginApp({
+    action: "graph.me_posts.fetch",
+    graphEndpoint: "/me/posts",
+    httpStatus: res.status,
+    success: true,
+    meta: { limit, count: payload.data?.length ?? 0 },
+  });
   return payload.data ?? [];
 }
 
@@ -378,11 +404,36 @@ export async function fetchFacebookPostById(
   const res = await fetch(url);
   const body = await res.text();
   if (!res.ok) {
+    void logFacebookLoginApp({
+      action: "graph.post.fetch",
+      graphEndpoint: `/${fbPostId}`,
+      httpStatus: res.status,
+      success: false,
+      fbPostId,
+      error: body.slice(0, 300),
+    });
     throw formatFacebookGraphError("Facebook post fetch failed", res.status, body);
   }
   const payload = JSON.parse(body) as GraphPost & { error?: { message?: string } };
-  if (payload.error?.message) throw new Error(payload.error.message);
+  if (payload.error?.message) {
+    void logFacebookLoginApp({
+      action: "graph.post.fetch",
+      graphEndpoint: `/${fbPostId}`,
+      httpStatus: res.status,
+      success: false,
+      fbPostId,
+      error: payload.error.message,
+    });
+    throw new Error(payload.error.message);
+  }
   if (!payload.id) throw new Error("Facebook post payload missing id");
+  void logFacebookLoginApp({
+    action: "graph.post.fetch",
+    graphEndpoint: `/${fbPostId}`,
+    httpStatus: res.status,
+    success: true,
+    fbPostId,
+  });
   return payload;
 }
 

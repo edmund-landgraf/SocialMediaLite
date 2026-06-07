@@ -14,6 +14,7 @@ import {
   offlineStubTestUserRow,
 } from "../services/offlineTestUser.js";
 import { loginStubTestUser } from "../services/stubTestUsers.js";
+import { logFacebookLoginApp } from "../services/facebookAppLog.js";
 import { probeFacebookImportAccessToken } from "../services/facebookAccessToken.js";
 import { serializeUser } from "../services/serializers.js";
 
@@ -171,6 +172,12 @@ async function fetchFacebookMe(config: FacebookConfig, accessToken: string): Pro
 }
 
 authRouter.get("/facebook/start", (req, res) => {
+  void logFacebookLoginApp({
+    action: "oauth.start",
+    requestPath: req.path,
+    scope: FB_LOGIN_SCOPE,
+    userId: req.session.userId ?? null,
+  });
   startFacebookOAuth(req, res, { scope: FB_LOGIN_SCOPE });
 });
 
@@ -192,6 +199,13 @@ authRouter.get("/facebook/import/start", async (req, res) => {
   if (existingToken) {
     const probe = await probeFacebookImportAccessToken(existingToken);
     if (probe.ok) {
+      void logFacebookLoginApp({
+        action: "import.start.skip_oauth",
+        requestPath: req.path,
+        scope: FB_IMPORT_SCOPE,
+        userId: req.session.userId ?? null,
+        success: true,
+      });
       if (returnTo) {
         res.redirect(`${webOrigin}${returnTo}`);
         return;
@@ -211,6 +225,13 @@ authRouter.get("/facebook/import/start", async (req, res) => {
     }
   }
 
+  void logFacebookLoginApp({
+    action: "oauth.start",
+    requestPath: req.path,
+    scope: FB_IMPORT_SCOPE,
+    userId: req.session.userId ?? null,
+    meta: { flow: "import" },
+  });
   startFacebookOAuth(req, res, { scope: FB_IMPORT_SCOPE });
 });
 
@@ -245,6 +266,12 @@ authRouter.get("/facebook/callback", async (req, res) => {
   const webOrigin = process.env.WEB_ORIGIN ?? "http://localhost:5174";
   const config = getFacebookConfig();
   if (!config) {
+    void logFacebookLoginApp({
+      action: "oauth.callback",
+      requestPath: req.path,
+      success: false,
+      error: "not_configured",
+    });
     redirectLoginError(
       res,
       webOrigin,
@@ -262,6 +289,12 @@ authRouter.get("/facebook/callback", async (req, res) => {
         : typeof req.query.error_reason === "string"
           ? req.query.error_reason
           : fbOAuthError;
+    void logFacebookLoginApp({
+      action: "oauth.callback",
+      requestPath: req.path,
+      success: false,
+      error: description,
+    });
     redirectLoginError(res, webOrigin, "fb_login_failed", description);
     return;
   }
@@ -280,6 +313,12 @@ authRouter.get("/facebook/callback", async (req, res) => {
         `Expected callback: ${config.redirectUri}. Use the same host/port you use to open the app (local dev: http://localhost:5174/api/auth/facebook/callback).`,
       );
     }
+    void logFacebookLoginApp({
+      action: "oauth.callback",
+      requestPath: req.path,
+      success: false,
+      error: parts.join(" "),
+    });
     redirectLoginError(res, webOrigin, "fb_state_or_code", parts.join(" "));
     return;
   }
@@ -325,6 +364,13 @@ authRouter.get("/facebook/callback", async (req, res) => {
     req.session.userId = user.id;
     /** Keep token on login and import so import can reuse a valid user_posts grant. */
     req.session.facebookAccessToken = accessToken;
+    void logFacebookLoginApp({
+      action: "oauth.callback",
+      requestPath: req.path,
+      success: true,
+      userId: user.id,
+      meta: { fbUserId: me.id, username: user.username },
+    });
     if (returnTo) {
       res.redirect(`${webOrigin}${returnTo}`);
       return;
@@ -332,6 +378,12 @@ authRouter.get("/facebook/callback", async (req, res) => {
     res.redirect(`${webOrigin}/${encodeURIComponent(user.username)}`);
   } catch (err) {
     console.error("facebook callback failed:", err);
+    void logFacebookLoginApp({
+      action: "oauth.callback",
+      requestPath: req.path,
+      success: false,
+      error: formatOAuthFailure(err),
+    });
     redirectLoginError(res, webOrigin, "fb_login_failed", formatOAuthFailure(err));
   }
 });

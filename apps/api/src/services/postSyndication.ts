@@ -32,6 +32,38 @@ export function postSyndicationPublicUrl(req: Request, token: string): string {
   return `${req.protocol}://${req.get("host")}/syndicate/${token}`;
 }
 
+/**
+ * URL for external partners (Facebook Page API `link` param).
+ * Facebook requires a public HTTPS URL — localhost is rejected (Graph error 1500).
+ */
+export function postSyndicationShareUrl(req: Request, token: string): string {
+  const configured = process.env.SYNDICATION_PUBLIC_BASE_URL?.trim();
+  if (configured) {
+    return `${configured.replace(/\/+$/, "")}/syndicate/${token}`;
+  }
+
+  const host = (req.get("host") ?? "").toLowerCase();
+  const hostname = host.split(":")[0] ?? "";
+  const isLocal = hostname === "localhost" || hostname === "127.0.0.1";
+
+  if (!isLocal && req.protocol === "https") {
+    return postSyndicationPublicUrl(req, token);
+  }
+
+  return postSyndicationPublicUrl(req, token);
+}
+
+export function isFacebookShareableLink(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "https:") return false;
+    const host = parsed.hostname.toLowerCase();
+    return host !== "localhost" && host !== "127.0.0.1";
+  } catch {
+    return false;
+  }
+}
+
 /** SPA origin for profile/login links (Vite :5174 dev, nginx :443 prod). */
 export function resolveWebAppOrigin(req: Request): string {
   const configured = process.env.WEB_ORIGIN?.trim();

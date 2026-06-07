@@ -4,6 +4,7 @@ import {
   type PostSyndicationAuthor,
   type PostSyndicationCommentTreeNode,
   type PostSyndicationSnapshot,
+  type SyndicationPushAction,
 } from "@socialmedialite/shared";
 
 function profilePageHref(webOrigin: string, username: string): string {
@@ -140,13 +141,40 @@ function renderPostBody(snapshot: PostSyndicationSnapshot): string {
   return parts.join("");
 }
 
+function renderPushActions(actions: SyndicationPushAction[]): string {
+  if (actions.length === 0) return "";
+  return actions
+    .map((action) => {
+      const variant =
+        action.method === "share_dialog" ? "btn-push btn-push-timeline" : "btn-push btn-push-page";
+      return `<a class="${variant}" href="${escapeHtml(action.href)}" rel="noopener noreferrer">${escapeHtml(action.label)}</a>`;
+    })
+    .join("");
+}
+
+function renderPushStatus(input: {
+  outcome: "success" | "error";
+  reason?: string;
+  pageName?: string;
+}): string {
+  if (input.outcome === "success") {
+    const page = input.pageName ? ` to ${input.pageName}` : "";
+    return `<div class="push-status push-status-ok">Pushed${escapeHtml(page)} to Facebook Page.</div>`;
+  }
+  const reason = input.reason ? `: ${input.reason}` : "";
+  return `<div class="push-status push-status-err">Facebook publish failed${escapeHtml(reason)}</div>`;
+}
+
 export function renderPostSyndicationHtml(input: {
   snapshot: PostSyndicationSnapshot;
   refreshedAt: string;
   pageUrl: string;
   webOrigin: string;
+  pushActions?: SyndicationPushAction[];
+  pushStatus?: { outcome: "success" | "error"; reason?: string; pageName?: string };
 }): string {
   const { snapshot, refreshedAt, pageUrl } = input;
+  const pushActions = input.pushActions ?? [];
   const webOrigin = input.webOrigin.replace(/\/+$/, "");
   const post = snapshot.post;
   const title = pageTitleFromSnapshot(snapshot);
@@ -294,6 +322,42 @@ export function renderPostSyndicationHtml(input: {
       transition: background 0.15s ease;
     }
     .btn-join:hover { background: #1d4ed8; }
+    .cta-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      justify-content: center;
+      align-items: center;
+    }
+    .btn-push {
+      display: inline-block;
+      padding: 0.55rem 1.15rem;
+      border-radius: 0.375rem;
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: #f4f4f5;
+      background: #1877f2;
+      text-decoration: none;
+      transition: background 0.15s ease;
+    }
+    .btn-push:hover { background: #166fe5; }
+    .push-status {
+      margin: 0 0 0.85rem;
+      padding: 0.65rem 0.75rem;
+      border-radius: 0.375rem;
+      font-size: 0.85rem;
+      text-align: left;
+    }
+    .push-status-ok {
+      background: #052e16;
+      border: 1px solid #166534;
+      color: #bbf7d0;
+    }
+    .push-status-err {
+      background: #450a0a;
+      border: 1px solid #991b1b;
+      color: #fecaca;
+    }
     .footer {
       margin-top: 1.5rem;
       padding-top: 1rem;
@@ -325,9 +389,13 @@ export function renderPostSyndicationHtml(input: {
       ${commentsHtml}
     </section>
 
-    <section class="cta" aria-label="Join the conversation">
-      <p class="cta-note">This page is read-only. Sign in to comment on SocialMediaLite.</p>
-      <a class="btn-join" href="${escapeHtml(joinConversationLoginHref(webOrigin, snapshot))}">Join the conversation on SML</a>
+    <section class="cta" aria-label="Join and share">
+      <p class="cta-note">This page is read-only. Sign in to comment on SocialMediaLite. Push to FB timeline opens Facebook&apos;s share dialog for your personal feed. Push to FB page publishes automatically to a Page you manage.</p>
+      ${input.pushStatus ? renderPushStatus(input.pushStatus) : ""}
+      <div class="cta-actions">
+        <a class="btn-join" href="${escapeHtml(joinConversationLoginHref(webOrigin, snapshot))}">Join the conversation on SML</a>
+        ${renderPushActions(pushActions)}
+      </div>
     </section>
 
     <footer class="footer">
